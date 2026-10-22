@@ -28,6 +28,20 @@ SECONDARY_REFERENCE_ONLY_FILES = {
     "source_verification_checklist.md",
 }
 
+# Cache only extracted PDF text/title. The file signature prevents stale
+# content after a source file changes during a local development session.
+_PDF_TEXT_CACHE: dict[tuple[str, int, int], tuple[str, str]] = {}
+
+_ARTICLE_OR_ANNEX_HEADING = re.compile(
+    r"^\s*(?:#{1,6}\s*)?(Article|Annex)\s+([0-9]+|[IVXLCDM]+)"
+    r"(?:\s*[-—:.)]\s*.*)?\s*$",
+    flags=re.IGNORECASE,
+)
+_ARTICLE_OR_ANNEX_MARKER = re.compile(
+    r"^\s*\[(ARTICLE|ANNEX)\s+([0-9]+|[IVXLCDM]+)\]\s*$",
+    flags=re.IGNORECASE,
+)
+
 PRIMARY_DOCUMENT_TYPES = {
     "ai_governance_policy": "policy",
     "ai_risk_assessment_credit_support": "risk_assessment",
@@ -70,9 +84,15 @@ def _validate_root(path: Path, kb: str) -> None:
 
 def _load_root(root: Path, kb: str) -> list[SourceDocument]:
     documents: list[SourceDocument] = []
-    for path in _iter_supported_files(root):
-        if kb == "secondary" and not _include_secondary(path, root):
-            continue
+    paths = [path for path in _iter_supported_files(root)
+             if kb != "secondary" or _include_secondary(path, root)]
+
+    # Article/Annex Markdown is the preferred representation when the team has
+    # already prepared it. In that case avoid re-parsing the official PDF.
+    if kb == "secondary" and _preferred_secondary_markdown(paths):
+        paths = [path for path in paths if not _is_official_eu_ai_act_pdf(path)]
+
+    for path in paths:
         documents.append(_load_document(path, root, kb))
     return documents
 
@@ -100,6 +120,29 @@ def _include_secondary(path: Path, root: Path) -> bool:
     return True
 
 
+def _preferred_secondary_markdown(paths: list[Path]) -> set[Path]:
+    return {
+        path for path in paths
+        if path.suffix.lower() in {".md", ".txt"}
+        and _is_article_or_annex_markdown(path)
+    }
+
+
+def _is_article_or_annex_markdown(path: Path) -> bool:
+    stem = path.stem.lower()
+    if re.match(r"^(article|annex)(?:[-_ ]|$)", stem):
+        return True
+    return any(part.lower() in {"articles", "annex", "annexes"}
+               for part in path.parts[:-1])
+
+
+def _is_official_eu_ai_act_pdf(path: Path) -> bool:
+    return (
+        path.suffix.lower() == ".pdf"
+        and path.name.lower() == "eu_ai_act_official.pdf"
+    )
+
+
 def _load_document(path: Path, root: Path, kb: str) -> SourceDocument:
     relative_file = path.relative_to(root).as_posix()
     source_id = f"{kb}:{relative_file}"
@@ -110,14 +153,17 @@ def _load_document(path: Path, root: Path, kb: str) -> SourceDocument:
         else:
             raw_text = path.read_text(encoding="utf-8")
             metadata, body = _parse_front_matter(raw_text)
-            title = metadata.get("title") or _title_from_markdown(body, path)
-            text = body
+            text = _normalize_text(body)
+            title = metadata.get("title") or _title_from_markdown(text, path)
     except IngestionError:
         raise
     except (OSError, UnicodeError) as exc:
         raise IngestionError(f"Unable to read source file {path}: {exc}") from exc
     except Exception as exc:
         raise IngestionError(f"Unable to parse source file {path}: {exc}") from exc
+
+    if not text.strip():
+        raise IngestionError(f"Source file is empty: {path}")
 
     default_visibility = "internal" if kb == "primary" else "public"
     visibility = metadata.get("visibility", default_visibility)
@@ -144,18 +190,74 @@ def _read_pdf(path: Path) -> tuple[str, str, dict[str, str]]:
         raise IngestionError("PDF support requires the pypdf package")
 
     try:
+        stat = path.stat()
+        cache_key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+        cached = _PDF_TEXT_CACHE.get(cache_key)
+        if cached is not None:
+            title, text = cached
+            return title, text, {}
+
+        # Remove older signatures for this path so a long-running local
+        # session does not retain stale versions indefinitely.
+        for key in list(_PDF_TEXT_CACHE):
+            if key[0] == cache_key[0] and key != cache_key:
+                del _PDF_TEXT_CACHE[key]
+
         reader = PdfReader(str(path))
         metadata = reader.metadata or {}
         title = str(getattr(metadata, "title", None) or "").strip()
         pages: list[str] = []
         for page_number, page in enumerate(reader.pages, start=1):
-            page_text = page.extract_text() or ""
-            pages.append(f"[PAGE {page_number}]\n{page_text.strip()}")
-        text = "\n\n".join(pages).strip()
+            page_text = _normalize_text(page.extract_text() or "")
+            pages.append(f"[PAGE {page_number}]\n{page_text}")
+        text = _normalize_text("\n\n".join(pages), preserve_page_markers=True)
     except Exception as exc:
         raise IngestionError(f"Unable to extract PDF {path}: {exc}") from exc
 
-    return title or _title_from_filename(path), text, {}
+    normalized_title = title or _title_from_filename(path)
+    _PDF_TEXT_CACHE[cache_key] = (normalized_title, text)
+    return normalized_title, text, {}
+
+
+def _normalize_text(text: str, *, preserve_page_markers: bool = False) -> str:
+    """Normalize source text without removing traceability markers."""
+    normalized = text.replace("\ufeff", "")
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = normalized.replace("\u00a0", " ")
+    lines = [line.rstrip() for line in normalized.split("\n")]
+
+    compact_lines: list[str] = []
+    blank_count = 0
+    for line in lines:
+        if line.strip():
+            blank_count = 0
+            compact_lines.append(line)
+            continue
+        blank_count += 1
+        if blank_count <= 1:
+            compact_lines.append("")
+
+    normalized = "\n".join(compact_lines).strip()
+    normalized = _normalize_article_annex_markers(normalized)
+    return normalized
+
+
+def _normalize_article_annex_markers(text: str) -> str:
+    """Add stable markers before clear standalone Article/Annex headings."""
+    output: list[str] = []
+    for line in text.split("\n"):
+        if _ARTICLE_OR_ANNEX_MARKER.match(line):
+            output.append(line.strip().upper())
+            continue
+
+        match = _ARTICLE_OR_ANNEX_HEADING.match(line)
+        if match:
+            kind, identifier = match.groups()[:2]
+            marker = f"[{kind.upper()} {identifier.upper()}]"
+            if not output or output[-1] != marker:
+                output.append(marker)
+        output.append(line)
+    return "\n".join(output)
 
 
 def _parse_front_matter(text: str) -> tuple[dict[str, str], str]:

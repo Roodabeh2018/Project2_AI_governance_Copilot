@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from src.contracts import IngestionError
+from src import ingestion
 from src.ingestion import load_documents
 
 
@@ -63,4 +64,85 @@ def test_invalid_front_matter_is_an_ingestion_error(tmp_path):
     (primary / "broken.md").write_text("---\nvisibility: internal\n# missing close", encoding="utf-8")
 
     with pytest.raises(IngestionError, match="no closing"):
+        load_documents(primary, secondary)
+
+
+def test_normalizes_uploaded_text_and_preserves_article_identifier(tmp_path):
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary" / "uploads"
+    primary.mkdir(parents=True)
+    secondary.mkdir(parents=True)
+    (secondary / "public_guidance.md").write_text(
+        "\ufeff# Public guidance\r\n\r\n\r\nArticle 14 — Human oversight\r\nA\u00a0B  \r\n",
+        encoding="utf-8",
+    )
+
+    documents = load_documents(primary, tmp_path / "secondary")
+
+    text = documents[0].text
+    assert "\ufeff" not in text
+    assert "\r" not in text
+    assert "[ARTICLE 14]" in text
+    assert "A B" in text
+    assert "\n\n\n" not in text
+
+
+def test_prefers_article_markdown_over_official_pdf(tmp_path):
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary" / "eu_ai_act"
+    primary.mkdir(parents=True)
+    secondary.mkdir(parents=True)
+    (secondary / "article_14.md").write_text(
+        "# Article 14 — Human oversight\nThe source text.", encoding="utf-8"
+    )
+    # If preference is not applied, this intentionally invalid PDF would fail.
+    (secondary / "eu_ai_act_official.pdf").write_bytes(b"not a real PDF")
+
+    documents = load_documents(primary, tmp_path / "secondary")
+
+    assert [document.source_file for document in documents] == [
+        "eu_ai_act/article_14.md"
+    ]
+    assert "[ARTICLE 14]" in documents[0].text
+
+
+def test_pdf_extraction_is_cached_for_unchanged_file(tmp_path, monkeypatch):
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary"
+    primary.mkdir()
+    secondary.mkdir()
+    pdf_path = secondary / "source.pdf"
+    pdf_path.write_bytes(b"placeholder")
+
+    calls = 0
+
+    class FakePage:
+        def extract_text(self):
+            return "Public source"
+
+    class FakeReader:
+        metadata = {"/Title": "Fake source"}
+        pages = [FakePage()]
+
+        def __init__(self, path):
+            nonlocal calls
+            calls += 1
+
+    ingestion._PDF_TEXT_CACHE.clear()
+    monkeypatch.setattr(ingestion, "PdfReader", FakeReader)
+
+    load_documents(primary, secondary)
+    load_documents(primary, secondary)
+
+    assert calls == 1
+
+
+def test_empty_source_is_an_ingestion_error(tmp_path):
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary"
+    primary.mkdir()
+    secondary.mkdir()
+    (secondary / "empty.md").write_text("\ufeff\n\n", encoding="utf-8")
+
+    with pytest.raises(IngestionError, match="empty"):
         load_documents(primary, secondary)
