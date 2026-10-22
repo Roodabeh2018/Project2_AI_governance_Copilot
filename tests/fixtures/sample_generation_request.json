@@ -1,0 +1,10 @@
+{
+  "request_type": "governance_document",
+  "document_type": "AI System Monitoring Plan",
+  "ai_system": "Credit Decision Support AI",
+  "topic": "Monitoring",
+  "output_visibility": "internal",
+  "primary_context": [],
+  "secondary_context": [],
+  "selected_findings": ["F-001"]
+}
