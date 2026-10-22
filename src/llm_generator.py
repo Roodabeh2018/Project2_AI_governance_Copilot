@@ -59,6 +59,21 @@ def validate_output(text: str, request: GenerationRequest, labels: dict) -> list
     unknown = sorted(c for c in cited if c not in labels)
     if unknown:
         warnings.append(f"Cites sources that were not supplied: {', '.join(unknown)}")
+    gap_bullets = _section_bullets(text, "## Evidence Incomplete or Not Found")
+    uncited = [b for b in gap_bullets if not LABEL.search(b)]
+    if uncited:
+        warnings.append(f"{len(uncited)} gap bullet(s) without a source label, e.g. '{uncited[0][:60]}'")
+    expected = [(r"schedule|frequen|how often|cycle", "[MONITORING FREQUENCY TO CONFIRM]"),
+                (r"criteri|threshold|time|target|sla", "[THRESHOLD TO CONFIRM]")]
+    wrong = [b for b in gap_bullets for pattern, ph in expected
+             if re.search(pattern, b.split(":")[0], re.I) and "[OWNER TO CONFIRM]" in b and ph not in b]
+    if wrong:
+        warnings.append(f"{len(wrong)} gap bullet(s) use [OWNER TO CONFIRM] for a schedule/criterion, "
+                        f"e.g. '{wrong[0][:60]}'")
+    if request.request_type == "governance_document":
+        proposed = re.search(r"^## Proposed Content(.*?)(?=^## |\Z)", text, re.S | re.M)
+        if proposed and not re.search(r"\bS\d+\b", proposed.group(1)):
+            warnings.append("Proposed Content does not name any requirement [S#] it implements.")
     if re.search(r"\{[a-z_]+\}", text):
         warnings.append("Unfilled template placeholder found.")
     if re.search(r"\b(fully compliant|is compliant|non-compliant)\b", text, re.I):
