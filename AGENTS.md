@@ -1,4 +1,4 @@
-# agents.md — AI Governance Copilot
+# AGENTS.md — AI Governance Copilot
 
 ## Role
 You are helping build a small Python RAG application that reviews a fictional company's supplied AI governance documentation, identifies potential documentation/evidence gaps, and drafts governance documents or communications for human review.
@@ -48,6 +48,24 @@ For a generated document, include:
 - Inspect the current repository before editing.
 - Make focused changes and run a relevant test.
 - Keep the implementation small enough for the two-day timebox.
-- Prioritise a working CLI over a UI.
+- Prioritise a working CLI first, then complete the required local Gradio MVP.
 - Never commit `.env`, API keys or real confidential company information.
 - Report files changed, commands/tests run, outcomes and limitations. Do not claim success without verification.
+
+## Mandatory startup instruction
+
+Before performing any repository task:
+
+1. Read this file first.
+2. Read `docs/shared_engineering_contract.md`.
+
+The shared engineering contract is the single source of truth for:
+- data models
+- schemas
+- field names
+- function interfaces
+- file formats
+- error handling
+- integration rules
+
+Do not redefine or rename shared contracts locally without team agreement.

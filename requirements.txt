@@ -1,0 +1,6 @@
+gradio
+numpy
+openai
+pypdf
+python-dotenv
+pytest

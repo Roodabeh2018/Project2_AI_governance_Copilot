@@ -1,16 +1,85 @@
-# Suggested Data Model
+# Data Model — AI Governance Copilot
+
+The canonical models are defined in `docs/shared_engineering_contract.md` and must be implemented once in `src/contracts.py`.
+
+## SourceDocument
+```python
+@dataclass
+class SourceDocument:
+    source_id: str
+    kb: Literal["primary", "secondary"]
+    source_file: str
+    source_type: str
+    document_type: str
+    visibility: Literal["internal", "public", "mixed"]
+    title: str
+    text: str
+```
 
 ## SourceChunk
-```json
-{
-  "chunk_id": "string",
-  "source_file": "string",
-  "section": "string",
-  "visibility": "public | internal | mixed",
-  "document_type": "policy | inventory | risk_assessment | technical_documentation | procedure | validation_report | regulatory_reference",
-  "text": "string"
-}
+```python
+@dataclass
+class SourceChunk:
+    chunk_id: str
+    kb: Literal["primary", "secondary"]
+    source_file: str
+    source_type: str
+    document_type: str
+    visibility: Literal["internal", "public", "mixed"]
+    page_start: int | None
+    page_end: int | None
+    section: str
+    article_or_annex: str | None
+    title: str
+    text: str
+    source_locator: str
 ```
+
+Every chunk must have a non-empty `chunk_id`, `source_file`, `kb`, `visibility`, `document_type`, `text` and `source_locator`.
+
+## RetrievalContext
+```python
+@dataclass
+class RetrievalContext:
+    query: str
+    output_visibility: Literal["internal", "public"]
+    retrieval_status: Literal["success", "insufficient_source", "error"]
+    primary_results: list[RetrievalResult]
+    secondary_results: list[RetrievalResult]
+    message: str | None = None
+```
+
+Primary and secondary results must remain separate and retain their source metadata.
+
+## GenerationRequest
+```python
+@dataclass
+class GenerationRequest:
+    request_type: Literal["governance_document", "internal_update"]
+    document_type: str | None
+    ai_system: str | None
+    topic: str
+    output_visibility: Literal["internal", "public"]
+    primary_context: list[RetrievalResult]
+    secondary_context: list[RetrievalResult]
+    selected_findings: list[str]
+```
+
+## GeneratedDraft
+```python
+@dataclass
+class GeneratedDraft:
+    title: str
+    request_type: str
+    status: str
+    content_markdown: str
+    citations: list[str]
+    evidence_status: str
+    open_questions: list[str]
+    output_path: str | None
+```
+
+The default status is `Draft — human review required`. A generated draft must never automatically close a finding or imply legal compliance.
 
 ## PotentialFinding
 ```json
@@ -20,29 +89,9 @@
   "topic": "Monitoring",
   "evidence_status": "evidence_incomplete",
   "summary": "The supplied documents do not specify an approved monitoring frequency or escalation threshold.",
-  "sources": [
-    {"source_file": "monitoring_notes.md", "section": "Monitoring Notes"}
-  ],
+  "sources": [{"source_file": "monitoring_notes.md", "section": "Monitoring Notes"}],
   "suggested_document": "AI System Monitoring Plan",
   "recommended_next_step": "Ask the accountable owner to confirm the monitoring schedule and thresholds.",
   "review_status": "Open"
 }
 ```
-
-## GeneratedDocument
-```json
-{
-  "document_id": "DOC-001",
-  "title": "AI System Monitoring Plan",
-  "ai_system": "Credit Decision Support AI",
-  "content_markdown": "string",
-  "source_finding_ids": ["F-001"],
-  "source_files": ["monitoring_notes.md"],
-  "status": "Draft — human review required",
-  "open_questions": ["Who is the accountable monitoring owner?"],
-  "reviewer": null,
-  "approval_date": null
-}
-```
-
-A generated draft must never automatically change a finding to closed.

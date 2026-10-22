@@ -32,8 +32,8 @@ RAG is selected because traceability and metadata filtering matter to the use ca
 7. Require source references, cautious language and placeholders for unknowns.
 8. Save Markdown draft to `outputs/`.
 
-## Fallback
-Timebox RAG implementation. If the end-to-end flow is not working by the end of Day 1, use concise prepared summaries of the most important documents directly in the prompt and document the deviation here. Continue to deliver a working end-to-end pipeline. Do not let a UI block the core requirements.
+## Delivery constraint
+RAG is mandatory for the MVP. Timebox the implementation and reduce optional features if needed, but do not bypass retrieval with prepared summaries. The CLI must work before the Gradio UI is integrated.
 
 ## Limitations
 - RAG can fail to retrieve relevant evidence.
