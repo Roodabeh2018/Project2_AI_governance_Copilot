@@ -35,6 +35,10 @@ class GenerationError(Exception):
     pass
 
 
+class SchemaValidationError(ValueError):
+    """Raised when a shared source or chunk violates the data contract."""
+
+
 # ---------- models (§4) ----------
 
 @dataclass
@@ -47,6 +51,9 @@ class SourceDocument:
     visibility: Visibility
     title: str
     text: str
+
+    def __post_init__(self) -> None:
+        validate_source_document(self)
 
 
 @dataclass
@@ -64,6 +71,9 @@ class SourceChunk:
     title: str
     text: str
     source_locator: str
+
+    def __post_init__(self) -> None:
+        validate_source_chunk(self)
 
 
 @dataclass
@@ -110,12 +120,77 @@ class GeneratedDraft:
 
 # ---------- JSON helpers (so fixtures and retrieved_context.json load into the same models) ----------
 
+_REQUIRED_SOURCE_DOCUMENT_FIELDS = (
+    "source_id", "source_file", "source_type", "document_type", "title", "text"
+)
+_REQUIRED_SOURCE_CHUNK_FIELDS = (
+    "chunk_id", "source_file", "source_type", "document_type", "section",
+    "title", "text", "source_locator"
+)
+
+
+def _require_non_empty_strings(obj, fields: tuple[str, ...], model_name: str) -> None:
+    for field_name in fields:
+        value = getattr(obj, field_name)
+        if not isinstance(value, str) or not value.strip():
+            raise SchemaValidationError(
+                f"{model_name}.{field_name} must be a non-empty string"
+            )
+
+
+def _validate_common_metadata(obj, model_name: str) -> None:
+    _require_non_empty_strings(obj, ("source_file", "source_type", "document_type"), model_name)
+    if obj.kb not in ("primary", "secondary"):
+        raise SchemaValidationError(f"{model_name}.kb must be 'primary' or 'secondary'")
+    if obj.visibility not in ("internal", "public", "mixed"):
+        raise SchemaValidationError(
+            f"{model_name}.visibility must be 'internal', 'public' or 'mixed'"
+        )
+
+
+def validate_source_document(document: SourceDocument) -> SourceDocument:
+    """Validate and return one canonical SourceDocument."""
+    _require_non_empty_strings(document, _REQUIRED_SOURCE_DOCUMENT_FIELDS, "SourceDocument")
+    _validate_common_metadata(document, "SourceDocument")
+    return document
+
+
+def validate_source_chunk(chunk: SourceChunk) -> SourceChunk:
+    """Validate and return one canonical SourceChunk.
+
+    This is deliberately kept beside the dataclass so every producer and
+    consumer receives the same validation, including fixture deserialization.
+    """
+    _require_non_empty_strings(chunk, _REQUIRED_SOURCE_CHUNK_FIELDS, "SourceChunk")
+    _validate_common_metadata(chunk, "SourceChunk")
+
+    if chunk.page_start is not None and (
+        not isinstance(chunk.page_start, int) or isinstance(chunk.page_start, bool)
+        or chunk.page_start < 1
+    ):
+        raise SchemaValidationError("SourceChunk.page_start must be a positive integer or None")
+    if chunk.page_end is not None and (
+        not isinstance(chunk.page_end, int) or isinstance(chunk.page_end, bool)
+        or chunk.page_end < 1
+    ):
+        raise SchemaValidationError("SourceChunk.page_end must be a positive integer or None")
+    if (chunk.page_start is not None and chunk.page_end is not None
+            and chunk.page_start > chunk.page_end):
+        raise SchemaValidationError("SourceChunk.page_start cannot exceed page_end")
+    if chunk.article_or_annex is not None and (
+        not isinstance(chunk.article_or_annex, str) or not chunk.article_or_annex.strip()
+    ):
+        raise SchemaValidationError("SourceChunk.article_or_annex must be text or None")
+    return chunk
+
 def to_dict(obj) -> dict:
     return asdict(obj)
 
 
 def chunk_from_dict(d: dict) -> SourceChunk:
-    return SourceChunk(**{k: d.get(k) for k in SourceChunk.__dataclass_fields__})
+    if not isinstance(d, dict):
+        raise SchemaValidationError("SourceChunk JSON value must be an object")
+    return SourceChunk(**d)
 
 
 def result_from_dict(d: dict) -> RetrievalResult:
