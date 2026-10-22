@@ -2,9 +2,133 @@
   "request_type": "governance_document",
   "document_type": "AI System Monitoring Plan",
   "ai_system": "Credit Decision Support AI",
-  "topic": "Monitoring",
+  "topic": "Monitoring and human oversight",
   "output_visibility": "internal",
-  "primary_context": [],
-  "secondary_context": [],
-  "selected_findings": ["F-001"]
+  "primary_context": [
+    {
+      "rank": 1,
+      "score": 0.62,
+      "chunk": {
+        "chunk_id": "primary_human_oversight_procedure_001",
+        "kb": "primary",
+        "source_file": "human_oversight_procedure.md",
+        "source_type": "company_document",
+        "document_type": "procedure",
+        "visibility": "internal",
+        "page_start": null,
+        "page_end": null,
+        "section": "Human Oversight Procedure — Synthetic Draft",
+        "article_or_annex": null,
+        "title": "Human oversight procedure",
+        "text": "**Status:** Incomplete draft.\nThe synthetic draft says analysts review outputs from the Credit Decision Support AI, but it does not provide measurable criteria for when the analyst must intervene.\nMissing or unclear:\n- Error or uncertainty criteria for escalation.\n- Escalation response time / service-level target.\n- Procedure for restricting or disabling the system.\n- Frequency for testing oversight effectiveness.\n- Deputy/backup accountable person.\n- Evidence of user training.\n- Records to retain when an analyst overrides an output.\nDo not invent thresholds, time limits or roles. Use placeholders and ask the accountable owner to confirm them.",
+        "source_locator": "human_oversight_procedure.md, Human Oversight Procedure — Synthetic Draft"
+      },
+      "citation": "human_oversight_procedure.md, Human Oversight Procedure — Synthetic Draft"
+    },
+    {
+      "rank": 2,
+      "score": 0.57,
+      "chunk": {
+        "chunk_id": "primary_monitoring_notes_001",
+        "kb": "primary",
+        "source_file": "monitoring_notes.md",
+        "source_type": "company_document",
+        "document_type": "monitoring_notes",
+        "visibility": "internal",
+        "page_start": null,
+        "page_end": null,
+        "section": "Monitoring Notes — Credit Decision Support AI (Synthetic)",
+        "article_or_annex": null,
+        "title": "Monitoring notes",
+        "text": "No approved monitoring schedule is included in the supplied knowledge base.\nThe policy does not define monitoring frequencies, metrics or escalation thresholds. The inventory does not record a monitoring owner or schedule. The risk assessment does not define reassessment triggers.\nPotential monitoring topics to consider in a draft include performance, input-data drift, data quality, relevant outcome differences, analyst overrides, complaints, incidents and material changes. These are suggestions for the document author to review, not confirmed existing controls or mandatory legal requirements.\nUnknown frequency, threshold, owner and response time must remain placeholders until approved.",
+        "source_locator": "monitoring_notes.md, Monitoring Notes — Credit Decision Support AI (Synthetic)"
+      },
+      "citation": "monitoring_notes.md, Monitoring Notes — Credit Decision Support AI (Synthetic)"
+    },
+    {
+      "rank": 3,
+      "score": 0.52,
+      "chunk": {
+        "chunk_id": "primary_ai_system_inventory_001",
+        "kb": "primary",
+        "source_file": "ai_system_inventory.md",
+        "source_type": "company_document",
+        "document_type": "inventory",
+        "visibility": "internal",
+        "page_start": null,
+        "page_end": null,
+        "section": "System: Credit Decision Support AI",
+        "article_or_annex": null,
+        "title": "AI system inventory",
+        "text": "- Purpose: supports analysts reviewing credit applications.\n- Deployment status: recorded as in production in this synthetic scenario.\n- Business owner: [NOT RECORDED]\n- Technical owner: [NOT RECORDED]\n- Model/version identifier: [NOT RECORDED]\n- AI risk classification: [NOT RECORDED]\n- Classification rationale: [NOT RECORDED]\n- Monitoring owner: [NOT RECORDED]\n- Last review date: [NOT RECORDED]\n- Incident contact: [NOT RECORDED]\n- Monitoring schedule: [NOT RECORDED]",
+        "source_locator": "ai_system_inventory.md, System: Credit Decision Support AI"
+      },
+      "citation": "ai_system_inventory.md, System: Credit Decision Support AI"
+    }
+  ],
+  "secondary_context": [
+    {
+      "rank": 1,
+      "score": 0.62,
+      "chunk": {
+        "chunk_id": "secondary_article_014_001",
+        "kb": "secondary",
+        "source_file": "article_014.md",
+        "source_type": "regulatory_reference",
+        "document_type": "regulatory_text",
+        "visibility": "public",
+        "page_start": null,
+        "page_end": null,
+        "section": "Article 14",
+        "article_or_annex": "Article 14",
+        "title": "EU AI Act — Article 14 — Human oversight",
+        "text": "1. High-risk AI systems shall be designed and developed in such a way, including with appropriate human-machine\ninterface tools, that they can be effectively overseen by natural persons during the period in which they are in use.\n2. Human oversight shall aim to prevent or minimise the risks to health, safety or fundamental rights that may emerge\nwhen a high-risk AI system is used in accordance with its intended purpose or under conditions of reasonably foreseeable\nmisuse, in particular where such risks persist despite the application of other requirements set out in this Section.\n3. The oversight measures shall be commensurate with the risks, level of autonomy and context of use of the high-risk\nAI system, and shall be ensured through either one or both of the following types of measures:\n(a) measures identified and built, when technically feasible, into the high-risk AI system by the provider before it is placed\non the market or put into service;\n(b) measures identified by the provider before placing the high-risk AI system on the market or putting it into service and\nthat are appropriate to be implemented by the deployer.\n4. For the purpose of implementing paragraphs 1, 2 and 3, the high-risk AI system shall be provided to the deployer in\nsuch a way that natural persons to whom human oversight is assigned are enabled, as appropriate and proportionate:\n(a) to properly understand the relevant capacities and limitations of the high-risk AI system and be able to duly monitor its\noperation, including in view of detecting and addressing anomalies, dysfunctions and unexpected performance;",
+        "source_locator": "EU AI Act, Article 14 (Human oversight)"
+      },
+      "citation": "EU AI Act, Article 14 (Human oversight)"
+    },
+    {
+      "rank": 2,
+      "score": 0.57,
+      "chunk": {
+        "chunk_id": "secondary_article_009_001",
+        "kb": "secondary",
+        "source_file": "article_009.md",
+        "source_type": "regulatory_reference",
+        "document_type": "regulatory_text",
+        "visibility": "public",
+        "page_start": null,
+        "page_end": null,
+        "section": "Article 9",
+        "article_or_annex": "Article 9",
+        "title": "EU AI Act — Article 9 — Risk management system",
+        "text": "1. A risk management system shall be established, implemented, documented and maintained in relation to high-risk AI\nsystems.\n2. The risk management system shall be understood as a continuous iterative process planned and run throughout the\nentire lifecycle of a high-risk AI system, requiring regular systematic review and updating. It shall comprise the following\nsteps:\n(a) the identification and analysis of the known and the reasonably foreseeable risks that the high-risk AI system can pose\nto health, safety or fundamental rights when the high-risk AI system is used in accordance with its intended purpose;\n(b) the estimation and evaluation of the risks that may emerge when the high-risk AI system is used in accordance with its\nintended purpose, and under conditions of reasonably foreseeable misuse;\n(c) the evaluation of other risks possibly arising, based on the analysis of data gathered from the post-market monitoring\nsystem referred to in Article 72;\n(d) the adoption of appropriate and targeted risk management measures designed to address the risks identified pursuant to\npoint (a).\n3. The risks referred to in this Article shall concern only those which may be reasonably mitigated or eliminated through\nthe development or design of the high-risk AI system, or the provision of adequate technical information.\n4. The risk management measures referred to in paragraph 2, point (d), shall give due consideration to the effects and\npossible interaction resulting from the combined application of the requirements set out in this Section, with a view to\nminimising risks more effectively while achieving an appropriate balance in implementing the measures to fulfil those\nrequirements.",
+        "source_locator": "EU AI Act, Article 9 (Risk management system)"
+      },
+      "citation": "EU AI Act, Article 9 (Risk management system)"
+    },
+    {
+      "rank": 3,
+      "score": 0.52,
+      "chunk": {
+        "chunk_id": "secondary_article_026_002",
+        "kb": "secondary",
+        "source_file": "article_026.md",
+        "source_type": "regulatory_reference",
+        "document_type": "regulatory_text",
+        "visibility": "public",
+        "page_start": null,
+        "page_end": null,
+        "section": "Article 26",
+        "article_or_annex": "Article 26",
+        "title": "EU AI Act — Article 26 — Obligations of deployers of high-risk AI systems",
+        "text": "5. Deployers shall monitor the operation of the high-risk AI system on the basis of the instructions for use and, where\nrelevant, inform providers in accordance with Article 72. Where deployers have reason to consider that the use of the\nhigh-risk AI system in accordance with the instructions may result in that AI system presenting a risk within the meaning of\nArticle 79(1), they shall, without undue delay, inform the provider or distributor and the relevant market surveillance\nauthority, and shall suspend the use of that system. Where deployers have identified a serious incident, they shall also\nimmediately inform first the provider, and then the importer or distributor and the relevant market surveillance authorities\nof that incident. If the deployer is not able to reach the provider, Article 73 shall apply mutatis mutandis. This obligation\nshall not cover sensitive operational data of deployers of AI systems which are law enforcement authorities.\nFor deployers that are financial institutions subject to requirements regarding their internal governance, arrangements or\nprocesses under Union financial services law, the monitoring obligation set out in the first subparagraph shall be deemed to\nbe fulfilled by complying with the rules on internal governance arrangements, processes and mechanisms pursuant to the\nrelevant financial service law.",
+        "source_locator": "EU AI Act, Article 26 (Obligations of deployers of high-risk AI systems)"
+      },
+      "citation": "EU AI Act, Article 26 (Obligations of deployers of high-risk AI systems)"
+    }
+  ],
+  "selected_findings": [
+    "No approved monitoring schedule, owner or reassessment triggers in the supplied documents"
+  ]
 }

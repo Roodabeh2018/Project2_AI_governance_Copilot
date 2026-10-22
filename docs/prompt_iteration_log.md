@@ -1,0 +1,10 @@
+# Prompt iteration log — Color C
+
+Each row = one prompt change, why, and the measured result. (Graded: iterative prompt engineering.)
+
+| # | Date | Template | Change | Why | Result before → after |
+|---|---|---|---|---|---|
+| 1 | 2026-10-22 | governance_document | First version: grounding rules, [P#]/[S#] labels, placeholders, fixed sections | Baseline | First real draft: 0 invented values ✅, all sections ✅, but only 2 of 6 sources cited and **10 of 10 gap bullets had no source** |
+| 2 | 2026-10-22 | governance_document + rules | Every gap bullet must end with the [P#] label of the document showing the gap (+ [S#] requirement); new rule "a gap is a claim and needs its source"; new placeholder [EVIDENCE TO PROVIDE]; automatic check counts uncited gap bullets | Reviewer must be able to trace every gap to a document | Uncited gap bullets 10/10 → **0/10** ✅; sources cited 2/6 → **5/6** ✅; invented values 0 → 0. New issue: wrong placeholder type ([OWNER TO CONFIRM] used for schedules, criteria and time targets); Proposed Content cites no requirement |
+| 3 | 2026-10-22 | rules + governance_document | Rule 5c: placeholder must match the missing item (person → OWNER, schedule → FREQUENCY, criterion/time → THRESHOLD, record → EVIDENCE); Proposed Content sub-sections must name the requirement [S#] they implement | Placeholders tell the reviewer *what kind* of decision is needed; proposals must be traceable to the law | **No change**: correct placeholder types 4/10 → 4/10; Proposed Content with [S#] 0 → 0. Automatic check still said "all passed" (a gap in our validator). **Lesson: a rule buried in a long prompt is ignored by the small model.** |
+| 4 | 2026-10-22 | governance_document + validator | Added a short worked EXAMPLE of the expected format (fictional lines, format only); validator now flags wrong placeholder types and Proposed Content without [S#] | Show, don't tell: small models copy examples more reliably than they follow rules; the check must catch what the model misses | Validator on run 3 output now reports both problems ✅. Fill in after rerun: correct placeholder types __ / 10, Proposed Content with [S#] yes/no |

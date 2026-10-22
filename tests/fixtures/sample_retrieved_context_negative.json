@@ -1,0 +1,8 @@
+{
+  "query": "What is the monitoring status of AI system AI-99?",
+  "output_visibility": "internal",
+  "retrieval_status": "insufficient_source",
+  "primary_results": [],
+  "secondary_results": [],
+  "message": "AI system AI-99 not found in the company documents"
+}
