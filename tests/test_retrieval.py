@@ -3,8 +3,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
-from src import indexing, retrieval
+from src import indexing, pipeline, retrieval
+from src.contracts import GenerationRequest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,3 +95,62 @@ def test_public_retrieval_filters_internal_chunks_and_unsupported_query(tmp_path
     assert context.primary_results == []
     assert context.secondary_results == []
     assert context.message
+
+
+def test_unknown_ai_system_returns_insufficient_source_without_generation(
+    tmp_path, monkeypatch
+):
+    chunks = (
+        indexing.load_chunks(ROOT / "tests" / "fixtures" / "sample_primary_chunks.jsonl")
+        + indexing.load_chunks(ROOT / "tests" / "fixtures" / "sample_secondary_chunks.jsonl")
+    )
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: np.tile(np.array([[1.0, 0.0]], dtype=np.float32), (len(texts), 1)),
+    )
+    index_path = tmp_path / "cache"
+    indexing.build_index(chunks, index_path)
+    monkeypatch.setattr(
+        retrieval,
+        "_embed_texts",
+        lambda texts: pytest.fail("unknown system should not be embedded"),
+    )
+    monkeypatch.setattr(
+        retrieval,
+        "load_config",
+        lambda: SimpleNamespace(minimum_retrieval_score=0.35),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "retrieve_context",
+        lambda request: retrieval.retrieve(
+            pipeline.build_query(request),
+            request.output_visibility,
+            3,
+            3,
+            index_path=index_path,
+            context_path=tmp_path / "unknown.json",
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "generate_draft",
+        lambda request: pytest.fail("unsupported request must not reach generation"),
+    )
+    request = GenerationRequest(
+        request_type="internal_update",
+        document_type=None,
+        ai_system="AI-99",
+        topic="monitoring status",
+        output_visibility="internal",
+    )
+
+    draft = pipeline.run_pipeline(request, save=False)
+
+    assert draft.status == "insufficient_source"
+    assert "AI-99" in draft.content_markdown
+    assert "does not establish whether the system exists elsewhere" in draft.content_markdown
+    assert "AI-99 does not exist" not in draft.content_markdown
+    assert request.primary_context == []
+    assert request.secondary_context == []

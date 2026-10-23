@@ -28,10 +28,16 @@ OUTPUT_FOLDERS = {"governance_document": "governance_documents", "internal_updat
 # ---------- steps ----------
 
 def build_query(request: GenerationRequest) -> str:
-    parts = [request.ai_system if request.output_visibility == "internal" else None,
-             request.document_type if request.request_type == "governance_document" else None,
-             request.topic]
-    return " ".join(p for p in parts if p)
+    parts = [
+        f"AI system: {request.ai_system}"
+        if request.ai_system and request.output_visibility == "internal"
+        else None,
+        f"Document: {request.document_type}"
+        if request.document_type and request.request_type == "governance_document"
+        else None,
+        f"Topic: {request.topic}" if request.topic else None,
+    ]
+    return "; ".join(part for part in parts if part)
 
 
 def retrieve_context(request: GenerationRequest) -> RetrievalContext:

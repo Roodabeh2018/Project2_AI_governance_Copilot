@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
@@ -38,6 +39,26 @@ def retrieve(
 
     config = load_config()
     index = load_index(index_path)
+    requested_system = _requested_ai_system(query)
+    known_systems = _known_ai_systems(index)
+    if requested_system and requested_system.casefold() not in {
+        system.casefold() for system in known_systems
+    }:
+        context = RetrievalContext(
+            query=query,
+            output_visibility=output_visibility,
+            retrieval_status="insufficient_source",
+            primary_results=[],
+            secondary_results=[],
+            message=(
+                f"No matching AI-system entry was found in the supplied inventory for "
+                f"'{requested_system}'; this does not establish whether the system exists "
+                "elsewhere."
+            ),
+        )
+        _save_context(context, Path(context_path))
+        return context
+
     query_vectors = _embed_texts([query])
     if query_vectors.shape[0] != 1 or query_vectors.shape[1] != index.vectors.shape[1]:
         raise RetrievalError("Query embedding dimension does not match the local index.")
@@ -109,6 +130,34 @@ def _retrieve_group(
             )
         )
     return results
+
+
+def _known_ai_systems(index: LocalVectorIndex) -> set[str]:
+    systems = set()
+    for chunk in index.chunks:
+        if chunk.document_type != "inventory":
+            continue
+        match = re.match(r"^\s*System:\s*(.+?)\s*$", chunk.section, flags=re.IGNORECASE)
+        if match:
+            systems.add(match.group(1))
+    return systems
+
+
+def _requested_ai_system(query: str) -> str | None:
+    labeled_system = re.search(
+        r"(?:^|[;\n])\s*AI system:\s*([^;\n]+)",
+        query,
+        flags=re.IGNORECASE,
+    )
+    if labeled_system:
+        return labeled_system.group(1).strip().rstrip(".")
+
+    system_id = re.search(
+        r"\bAI[-_][A-Z0-9]+\b",
+        query,
+        flags=re.IGNORECASE,
+    )
+    return system_id.group(0) if system_id else None
 
 
 def _save_context(context: RetrievalContext, path: Path) -> None:
