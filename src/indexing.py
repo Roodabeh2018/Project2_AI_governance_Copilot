@@ -5,6 +5,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+KB_DIR = ROOT / "knowledge_base"
 CACHE_DIR = ROOT / "cache"
 CHUNKS_PATH = CACHE_DIR / "chunks.jsonl"
 INDEX_PATH = CACHE_DIR / "vector_index.json"
@@ -19,10 +20,80 @@ _REQUIRED_FIELDS = (
     "text",
     "source_locator",
 )
+_VISIBILITIES = {"internal", "public", "mixed"}
+_FRONT_MATTER_PATTERN = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+_SECTION_PATTERN = re.compile(r"(?m)(?=^#{1,3}\s)")
 
 
 def _tokenize(text: str) -> list[str]:
     return _TOKEN_PATTERN.findall(text.lower())
+
+
+def create_chunks_from_markdown(
+    kb_dir: Path = KB_DIR,
+    output_path: Path = CHUNKS_PATH,
+) -> list[dict]:
+    """Create section-sized JSONL chunks from the supplied knowledge base."""
+    chunks = []
+
+    for subfolder, kb in ((kb_dir / "primary", "primary"), (kb_dir / "secondary", "secondary")):
+        for path in sorted(subfolder.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            front_matter = _FRONT_MATTER_PATTERN.match(text)
+            if front_matter is None:
+                raise ValueError(f"Missing YAML front matter in {path}")
+
+            metadata = {}
+            for line in front_matter.group(1).splitlines():
+                key, separator, value = line.partition(":")
+                if separator:
+                    metadata[key.strip()] = value.strip()
+
+            visibility = metadata.get("visibility")
+            document_type = metadata.get("document_type")
+            if visibility not in _VISIBILITIES:
+                raise ValueError(
+                    f"Invalid or missing visibility metadata in {path}: {visibility!r}"
+                )
+            if not document_type:
+                raise ValueError(f"Missing document_type metadata in {path}")
+
+            content = text[front_matter.end():]
+            sections = _SECTION_PATTERN.split(content)
+            section_number = 0
+            for section in sections:
+                section = section.strip()
+                if not section:
+                    continue
+
+                heading = next(
+                    (
+                        line.lstrip("# ").strip()
+                        for line in section.splitlines()
+                        if line.startswith("#")
+                    ),
+                    path.stem,
+                )
+                section_number += 1
+                chunks.append({
+                    "chunk_id": f"{kb}:{path.stem}:{section_number}",
+                    "kb": kb,
+                    "source_file": path.name,
+                    "section": heading,
+                    "visibility": visibility,
+                    "document_type": document_type,
+                    "text": section,
+                    "source_locator": f"{path.name}, {heading}",
+                })
+
+    if not chunks:
+        raise ValueError(f"No Markdown documents found under {kb_dir}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as file:
+        for chunk in chunks:
+            file.write(json.dumps(chunk, ensure_ascii=False) + "\n")
+    return chunks
 
 
 def load_chunks(path: Path = CHUNKS_PATH) -> list[dict]:
@@ -226,6 +297,9 @@ def search_index(
 
 
 def main() -> None:
+    if not CHUNKS_PATH.exists():
+        chunks = create_chunks_from_markdown()
+        print(f"Created {len(chunks)} chunks at {CHUNKS_PATH}")
     chunks = load_chunks()
     save_metadata(chunks)
     index = build_index(chunks)

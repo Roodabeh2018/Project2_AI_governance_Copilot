@@ -21,6 +21,37 @@ def make_chunk(chunk_id, kb, visibility, text):
 
 
 class IndexingTests(unittest.TestCase):
+    def test_markdown_sources_generate_loadable_chunks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            primary = root / "primary"
+            secondary = root / "secondary"
+            primary.mkdir()
+            secondary.mkdir()
+            (primary / "policy.md").write_text(
+                "---\ntitle: Policy\nvisibility: internal\n"
+                "document_type: policy\n---\n"
+                "# Governance\n\nThe policy covers human oversight.\n\n"
+                "## Monitoring\n\nMonitoring frequency needs review.\n",
+                encoding="utf-8",
+            )
+            (secondary / "framework.md").write_text(
+                "---\ntitle: Framework\nvisibility: public\n"
+                "document_type: framework_summary\n---\n"
+                "# Risk Management\n\nA public framework for AI risk.\n",
+                encoding="utf-8",
+            )
+            chunks_path = root / "cache" / "chunks.jsonl"
+
+            created = indexing.create_chunks_from_markdown(root, chunks_path)
+            loaded = indexing.load_chunks(chunks_path)
+
+        self.assertEqual(len(created), 3)
+        self.assertEqual(len(loaded), 3)
+        self.assertEqual(loaded[0]["visibility"], "internal")
+        self.assertEqual(loaded[-1]["visibility"], "public")
+        self.assertEqual(loaded[1]["source_locator"], "policy.md, Monitoring")
+
     def test_build_and_reload_index_returns_relevant_chunks(self):
         chunks = [
             make_chunk(
