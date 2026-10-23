@@ -41,7 +41,10 @@ def decide(decision, reviewer, comment, state):
     if decision != "draft" and not reviewer.strip():
         return "Enter the reviewer name first."
     draft, request = state
-    path, changes = approve(draft, request, reviewer.strip(), comment, decision)
+    try:
+        path, changes = approve(draft, request, reviewer.strip(), comment, decision)
+    except GenerationError as exc:
+        return f"**Not saved:** {exc}"
     msg = f"Saved `{path.relative_to(ROOT)}` — **{decision}**"
     return msg + ("\n\nGap register:\n" + "\n".join(f"- {c}" for c in changes) if changes else "")
 
