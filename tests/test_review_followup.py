@@ -225,3 +225,42 @@ def test_verdict_followed_by_a_proposal_is_still_rejected(monkeypatch):
                         + "\nNorthstar is non-compliant with Article 26 and should fix this [P1].")
     with pytest.raises(GenerationError, match="compliance verdict"):
         pipeline.run_pipeline(_req(), _ctx(), save=False)
+
+
+# --- Re-review of 2424c7d: exemptions are scoped and must be negated ---
+
+REJECTED_MIXED = [
+    "The evidence does show that Northstar Digital Bank is compliant with the EU AI Act [P1].",
+    "The documents do establish that Northstar Digital Bank complies with the EU AI Act [P1].",
+    "The monitoring plan should be updated, but Northstar Digital Bank is non-compliant with Article 26 [P1].",
+    "This is not a compliance determination, but Northstar Digital Bank is compliant with the EU AI Act [P1].",
+    "The controls are proposed; Northstar Digital Bank is compliant with Article 14 [P1].",
+]
+
+
+@pytest.mark.parametrize("sentence", REJECTED_MIXED)
+def test_affirmative_or_unqualified_verdict_is_rejected_in_generation(monkeypatch, sentence):
+    monkeypatch.setattr(llm_generator, "generate_text",
+                        lambda prompt: llm_generator._mock_answer(prompt) + f"\n{sentence}")
+    with pytest.raises(GenerationError, match="compliance verdict"):
+        pipeline.run_pipeline(_req(), _ctx(), save=False)
+
+
+@pytest.mark.parametrize("sentence", REJECTED_MIXED)
+def test_affirmative_or_unqualified_verdict_is_rejected_when_saving(sentence):
+    draft = pipeline.run_pipeline(_req(), _ctx(), save=False)
+    draft.content_markdown += f"\n{sentence}\n"
+    with pytest.raises(GenerationError, match="compliance verdict"):
+        pipeline.save_markdown(draft)
+
+
+@pytest.mark.parametrize("sentence", [
+    "Proposed: controls should comply with the applicable requirements [S1].",
+    "The proposed monitoring plan aims to comply with the relevant requirements [S1].",
+    "This draft does not establish that Northstar Digital Bank is compliant [P1].",
+    "It remains open whether Northstar Digital Bank is compliant with Article 26 [P1].",
+])
+def test_qualified_wording_can_be_saved(sentence):
+    draft = pipeline.run_pipeline(_req(), _ctx(), save=False)
+    draft.content_markdown += f"\n{sentence}\n"
+    assert pipeline.save_markdown(draft).exists()

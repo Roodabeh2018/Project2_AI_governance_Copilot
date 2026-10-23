@@ -26,30 +26,37 @@ VERDICT = re.compile(
     r"|\b(?:is|are|was|were|remains?)\s+(?:not\s+)?in\s+(?:full\s+)?compliance\b"
     r"|\b(?:violates|violated|is\s+in\s+violation\s+of)\b",
     re.I)
-# A verdict-like phrase is NOT a verdict when, earlier in the same sentence, the text either
-# proposes/aims (should, must, aims to, proposed …) or explicitly disclaims a conclusion
-# ("does not establish that …", "not a compliance determination"). Wording after the phrase does not
-# excuse it: "X is non-compliant and should …" is still rejected.
+# A verdict-like phrase is NOT a verdict when, earlier in the SAME CLAUSE, the text either
+# proposes/aims (should, must, aims to, proposed …) or explicitly disclaims a conclusion with a negation
+# ("does not establish that …", "not a compliance determination", "whether …").
+# - Wording after the phrase does not excuse it: "X is non-compliant and should …" is rejected.
+# - Wording in an earlier, independent clause does not excuse it either:
+#   "The plan should be updated, but X is non-compliant" is rejected.
+# - Affirmative forms are not disclaimers: "the evidence does show that X is compliant" is rejected.
 _PROPOSAL = re.compile(r"\b(?:should|must|shall|will|would|could|may|aims?\s+to|intends?\s+to|intended\s+to|"
                        r"designed\s+to|in\s+order\s+to|helps?\s+to|to\s+help|propos(?:ed|es|e)|recommend(?:ed|s)?)\b",
                        re.I)
-_DISCLAIMER = re.compile(r"\b(?:does|do|did|cannot|can\s*not|can't|doesn't|don't)\s+(?:not\s+)?"
+_DISCLAIMER = re.compile(r"\b(?:(?:does|do|did)\s+not|doesn't|don't|didn't|cannot|can\s+not|can't)\s+"
                          r"(?:establish|determine|conclude|confirm|show|prove|imply|state|assess)\b"
                          r"|\bnot\s+(?:a|an)\s+(?:compliance|legal)\s+(?:determination|assessment|conclusion|opinion)\b"
                          r"|\bwithout\s+(?:concluding|determining|establishing)\b|\bwhether\b", re.I)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n")
+# Boundaries between independent clauses inside a sentence.
+_CLAUSE = re.compile(r"[;:]|\s[—–]\s|\s-\s|,\s*(?:but|however|yet|although|though|while|whereas|and|so)\b"
+                     r"|\b(?:but|however|whereas|although)\b", re.I)
 
 
 def compliance_verdicts(text: str) -> list[str]:
     """Sentences that state an affirmative compliance / non-compliance verdict (limited safeguard)."""
     found = []
     for sentence in _SENTENCE.split(text):
-        for match in VERDICT.finditer(sentence):
-            before = sentence[:match.start()]
-            if _PROPOSAL.search(before) or _DISCLAIMER.search(before):
-                continue
-            found.append(sentence.strip())
-            break
+        for clause in _CLAUSE.split(sentence):
+            match = next((m for m in VERDICT.finditer(clause)
+                          if not (_PROPOSAL.search(clause[:m.start()]) or _DISCLAIMER.search(clause[:m.start()]))),
+                         None)
+            if match:
+                found.append(sentence.strip())
+                break
     return found
 
 
