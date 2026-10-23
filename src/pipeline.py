@@ -23,7 +23,8 @@ from src.config import DATA_DIR, OUTPUT_DIR, PRIMARY_DIR, ROOT, SECONDARY_DIR, l
 from src.contracts import (ConfigurationError, GeneratedDraft, GenerationError, GenerationRequest,
                            RetrievalContext, RetrievalError, RetrievalResult, SourceChunk,
                            retrieval_context_from_dict)
-from src.llm_generator import generate_draft, parse_findings
+from src.llm_generator import ensure_saveable, generate_draft, parse_findings
+from src.prompts import label_context
 
 DEFAULT_SYSTEM = "Credit Decision Support AI"
 OUTPUT_FOLDERS = {"governance_document": "governance_documents", "internal_update": "internal_updates"}
@@ -175,11 +176,15 @@ def sufficient(context: RetrievalContext) -> bool:
         return context.retrieval_status == "success" and bool(context.primary_results or context.secondary_results)
 
 
+def visible(results: list[RetrievalResult], output_visibility: str) -> list[RetrievalResult]:
+    """A public output may only use public chunks; an internal output may use everything."""
+    return [r for r in results if output_visibility != "public" or r.chunk.visibility == "public"]
+
+
 def enforce_visibility(context: RetrievalContext) -> RetrievalContext:
     """Defence in depth: B filters already; C drops anything not public for a public output."""
-    if context.output_visibility == "public":
-        context.primary_results = [r for r in context.primary_results if r.chunk.visibility == "public"]
-        context.secondary_results = [r for r in context.secondary_results if r.chunk.visibility == "public"]
+    context.primary_results = visible(context.primary_results, context.output_visibility)
+    context.secondary_results = visible(context.secondary_results, context.output_visibility)
     return context
 
 
@@ -192,6 +197,7 @@ def save_markdown(draft: GeneratedDraft, decision: str = "draft", reviewer: str 
     while path.exists():                              # two drafts in the same minute
         path = folder / f"{draft.request_type}_{stamp}_{n}.md"
         n += 1
+    ensure_saveable(draft.content_markdown)
     approval = (f"\n## Approval\nReviewer: {reviewer}\nDecision: {decision}\n"
                 f"Date: {dt.date.today().isoformat() if decision != 'draft' else ''}\n"
                 + (f"Comment: {comment}\n" if comment else ""))
@@ -211,17 +217,29 @@ def insufficient_draft(request: GenerationRequest, message: str) -> GeneratedDra
 
 def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = None,
                  save: bool = True) -> GeneratedDraft:
-    """Contract §5.4. Pass `context` to skip retrieval (fixtures / tests)."""
+    """Contract §5.4. Pass `context` to skip retrieval (fixtures / tests).
+
+    Visibility is enforced on EVERY path (retrieved, fixture or pre-populated request), and
+    sufficiency is checked again after filtering.
+    """
     if not request.primary_context and not request.secondary_context:
         missing = unknown_systems(request) if context is None else []
         if missing:
-            return insufficient_draft(request, f"AI system not found in the company documents: {', '.join(missing)}")
+            return insufficient_draft(request, f"AI system not found in the company documents: {', '.join(missing)}; "
+                                            "this does not establish whether the system exists elsewhere.")
         context = context or retrieve_context(request)
         context.output_visibility = request.output_visibility
         if not sufficient(context):
             return insufficient_draft(request, context.message or "no supporting source retrieved")
-        context = enforce_visibility(context)
         request.primary_context, request.secondary_context = context.primary_results, context.secondary_results
+    request.primary_context = visible(request.primary_context, request.output_visibility)
+    request.secondary_context = visible(request.secondary_context, request.output_visibility)
+    filtered = RetrievalContext(query=build_query(request), output_visibility=request.output_visibility,
+                                retrieval_status="success", primary_results=request.primary_context,
+                                secondary_results=request.secondary_context)
+    if not sufficient(filtered):                      # judged on what the LLM would actually receive
+        return insufficient_draft(request, f"no sufficient {request.output_visibility} source "
+                                           "left after visibility filtering")
     draft = generate_draft(request)
     if save and draft.status != "insufficient_source":
         save_markdown(draft)
@@ -230,12 +248,20 @@ def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = 
 
 def approve(draft: GeneratedDraft, request: GenerationRequest, reviewer: str, comment: str = "",
             decision: str = "approved") -> tuple[Path, list[str]]:
-    """Human decision → saved file with approval block; approved internal_update updates the gap register."""
-    path = save_markdown(draft, decision, reviewer, comment)
-    changes = []
+    """Human decision → saved file with approval block; approved internal_update updates the gap register.
+
+    Findings are parsed and validated BEFORE anything is saved, so an invalid approval changes nothing.
+    """
+    findings, supplied = [], {}
     if decision == "approved" and request.request_type == "internal_update":
-        changes = gap_register.record_approved(request.ai_system or DEFAULT_SYSTEM,
-                                               parse_findings(draft.content_markdown), reviewer)
+        findings = parse_findings(draft.content_markdown)              # GenerationError if malformed
+        supplied = {lab: r.citation for lab, r in label_context(request).items()}
+        problems = gap_register.validate_findings(findings, supplied)
+        if problems:
+            raise GenerationError("Approval blocked, gap register unchanged: " + "; ".join(problems))
+    path = save_markdown(draft, decision, reviewer, comment)
+    changes = gap_register.record_approved(request.ai_system or DEFAULT_SYSTEM, findings, reviewer,
+                                           supplied) if findings else []
     return path, changes
 
 
@@ -277,7 +303,11 @@ def main():
         if choice in ("a", "r"):
             reviewer = input("Reviewer name: ").strip()
             comment = input("Comment (optional): ").strip() if choice == "r" else ""
-            path, changes = approve(draft, request, reviewer, comment, "approved" if choice == "a" else "rejected")
+            try:
+                path, changes = approve(draft, request, reviewer, comment,
+                                        "approved" if choice == "a" else "rejected")
+            except GenerationError as exc:
+                raise SystemExit(f"Error: {exc}")
         else:
             path, changes = save_markdown(draft), []
         print(f"Saved: {path.relative_to(ROOT)}")
