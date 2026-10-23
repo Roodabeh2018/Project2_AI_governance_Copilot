@@ -1,9 +1,25 @@
-# Demo Script — 3–5 Minutes
+# Demo Script — 5 Minutes
 
-1. **Introduce the problem:** AI governance documentation is spread across policies, inventory, risk assessments, technical docs, oversight procedures and validation evidence.
-2. **Show the knowledge base:** open the synthetic company documents and public framework notes. Explain all company data is fictional.
-3. **Ask a grounded question:** “What evidence is available for monitoring of Credit Decision Support AI?”
-4. **Show the potential finding:** highlight source files and the wording “not found in supplied documents” rather than asserting that a control does not exist.
-5. **Generate a missing document:** create an AI System Monitoring Plan using retrieved evidence. Show placeholders for unknown owner, frequency and thresholds.
-6. **Show a second output:** generate a concise internal update. If time permits, generate a public LinkedIn post using public-tagged sources only.
-7. **Explain human oversight:** draft remains unapproved; the human reviewer must confirm values and approve. A generated document does not close a finding.
+**Setup before the demo:** `conda activate bootcamp-env`, project folder open, `.env` with `LLM_PROVIDER=openai`, index built (README step 3), `python -m src.app` running at http://127.0.0.1:7860.
+**Backup if the API fails:** set `LLM_PROVIDER=mock` and tick *"Use sample context"* in the app, or open the saved outputs listed below.
+
+| Time | Who | What to show | What to say |
+|---|---|---|---|
+| 0:00–0:40 | Color A | `knowledge_base/primary/` (9 synthetic Northstar documents, front matter with `visibility`) and `knowledge_base/secondary/eu_ai_act/eu_ai_act_official.pdf` | "AI governance evidence is spread across policy, inventory, risk assessment, oversight procedure and validation report. All company data is fictional; the regulatory baseline is the official 144-page EU AI Act." |
+| 0:40–1:20 | Color B | `python -m src.kb_validation`, then the retrieved sources table in the app | "Primary and Secondary are retrieved separately with their own top-k, so regulation never crowds out company evidence. Every chunk keeps file, section/page and visibility." |
+| 1:20–2:40 | Color C | App tab **1 · Generate & review** → *governance_document*, "AI System Monitoring Plan", internal → **Generate** | Point at: `Status: Draft — human review required`; *Evidence Incomplete or Not Found* with `[P#]` citations; placeholders `[OWNER TO CONFIRM]`, `[THRESHOLD TO CONFIRM]`; Source Register; Automatic checks. "Not found in the supplied documents is a potential documentation gap, not proof that a control is missing, and not a compliance verdict." |
+| 2:40–3:20 | Color C | Switch to *internal_update* → **Generate** → enter reviewer name → **Approve** → tab **3 · Gap register** | "Only a human approval updates the register, and only when every finding is backed by a supplied source. Uploading a new regulation sets complete items back to *re_check*." |
+| 3:20–3:50 | Color C | Visibility → *public* → **Generate** (or show `docs/public_leakage_test.md`) | "Public output only ever sees public-tagged chunks. Internal facts are removed before the prompt is built. If nothing public is left, we answer *insufficient source*." |
+| 3:50–4:10 | Color C | AI system → `AI-99` → **Generate** | "An unknown system gives *insufficient source* instead of an invented answer." |
+| 4:10–4:50 | All | `docs/uniqueness_comparison.md` side by side with ChatGPT | "ChatGPT invents thresholds like PSI > 0.20 and eight owner roles. The Copilot finds 22 cited, company-specific gaps and keeps every unknown as a placeholder." |
+| 4:50–5:00 | All | Trello board (Day 1 / Day 2 screenshots) | Lessons learned: shared contract + fixtures let three people build in parallel; PR reviews caught real safety bugs (visibility, gap register validation). |
+
+## Saved outputs to fall back on
+- `outputs/governance_documents/governance_document_20261023_1432.md`: monitoring plan, internal
+- `outputs/internal_updates/internal_update_20261023_1438.md`: internal update with findings JSON
+- `outputs/governance_documents/governance_document_20261023_1441.md`: public output (leakage test Run B)
+
+## Likely questions
+- **Why RAG, not just ChatGPT?** Traceability to company files, visibility filtering, and no invented values. See `rag_decision.md`.
+- **Is this a compliance assessment?** No. It drafts documents for human review and never declares compliance or non-compliance.
+- **What did it cost?** gpt-4o-mini drafts cost a fraction of a cent each; embeddings are built once and cached (budget €5).
