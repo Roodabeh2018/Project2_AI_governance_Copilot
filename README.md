@@ -23,6 +23,9 @@ All company documents are synthetic. Do not add confidential real company data. 
 4. Place company documents in `knowledge_base/primary/`.
 5. Keep the official EU AI Act PDF in `knowledge_base/secondary/eu_ai_act/`.
 6. Place optional user-uploaded public/reference documents in `knowledge_base/secondary/`.
+   Article/Annex Markdown replaces the official PDF only when
+   `knowledge_base/secondary/eu_ai_act/.replace_official_pdf` exists; ordinary
+   uploads remain additive.
 7. Run the ingestion/indexing flow, then generate a draft using the CLI.
 8. Review citations, placeholders and output status before presenting.
 
