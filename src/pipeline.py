@@ -17,12 +17,18 @@ from pathlib import Path
 
 from src import gap_register
 from src.config import OUTPUT_DIR, ROOT, load_config
+import re
+
+from src.config import PRIMARY_DIR
 from src.contracts import (ConfigurationError, GeneratedDraft, GenerationError, GenerationRequest,
-                           RetrievalContext, RetrievalError, retrieval_context_from_dict)
+                           RetrievalContext, RetrievalError, RetrievalResult, SourceChunk,
+                           retrieval_context_from_dict)
 from src.llm_generator import generate_draft, parse_findings
 
 DEFAULT_SYSTEM = "Credit Decision Support AI"
 OUTPUT_FOLDERS = {"governance_document": "governance_documents", "internal_update": "internal_updates"}
+SYSTEM_ID = re.compile(r"\b[A-Z]{1,6}-\d{1,4}\b")          # e.g. AI-99
+FRONT_MATTER = re.compile(r"^---\s*\n.*?\n---\s*\n", re.S)
 
 
 # ---------- steps ----------
@@ -34,15 +40,62 @@ def build_query(request: GenerationRequest) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _as_result(rank: int, item) -> RetrievalResult:
+    """Accept a contract RetrievalResult or a plain dict (older Color B output)."""
+    if isinstance(item, RetrievalResult):
+        return item
+    chunk = SourceChunk(
+        chunk_id=item.get("chunk_id") or f"{item.get('kb')}_{item.get('source_file')}_{rank:03d}",
+        kb=item.get("kb", "primary"), source_file=item.get("source_file", "unknown"),
+        source_type=item.get("source_type", "company_document" if item.get("kb") == "primary" else "regulatory_reference"),
+        document_type=item.get("document_type", "unknown"), visibility=item.get("visibility", "internal"),
+        page_start=item.get("page_start"), page_end=item.get("page_end"),
+        section=item.get("section", ""), article_or_annex=item.get("article_or_annex"),
+        title=item.get("title", item.get("section", "")),
+        text=FRONT_MATTER.sub("", item.get("text", "")),
+        source_locator=item.get("source_locator", item.get("source_file", "")))
+    return RetrievalResult(rank=rank, score=float(item.get("score", 0)), chunk=chunk,
+                           citation=item.get("citation", chunk.source_locator))
+
+
+def _as_context(raw, request: GenerationRequest) -> RetrievalContext:
+    """Normalise Color B output to the contract RetrievalContext (defence against format drift)."""
+    if isinstance(raw, RetrievalContext):
+        return raw
+    if not isinstance(raw, dict):
+        raise RetrievalError(f"Unexpected retrieval output type: {type(raw).__name__}")
+    return RetrievalContext(
+        query=raw.get("query", build_query(request)),
+        output_visibility=raw.get("output_visibility", request.output_visibility),
+        retrieval_status=raw.get("retrieval_status", "success"),
+        primary_results=[_as_result(i + 1, r) for i, r in enumerate(raw.get("primary_results", []))],
+        secondary_results=[_as_result(i + 1, r) for i, r in enumerate(raw.get("secondary_results", []))],
+        message=raw.get("message"))
+
+
+def unknown_systems(request: GenerationRequest) -> list[str]:
+    """Named AI systems (e.g. AI-99) that never appear in the company documents."""
+    names = SYSTEM_ID.findall(f"{request.topic} {request.ai_system or ''}")
+    if request.ai_system and not SYSTEM_ID.fullmatch(request.ai_system):
+        names.append(request.ai_system)
+    company_text = " ".join(p.read_text(encoding="utf-8") for p in PRIMARY_DIR.rglob("*.md")).lower()
+    return [n for n in dict.fromkeys(names) if n.lower() not in company_text]
+
+
 def retrieve_context(request: GenerationRequest) -> RetrievalContext:
-    """Calls Color B. Raises RetrievalError with a clear message if B is not merged yet."""
+    """Calls Color B (contract §5.2) and normalises the result."""
     try:
-        from src.retrieval import retrieve            # Color B module (contract §5.2)
+        from src.retrieval import retrieve            # Color B module
     except ImportError as exc:
         raise RetrievalError("src/retrieval.py (Color B) is not available yet — "
                              "run with --fixture tests/fixtures/sample_retrieved_context.json") from exc
     cfg = load_config()
-    return retrieve(build_query(request), request.output_visibility, cfg.top_k_primary, cfg.top_k_secondary)
+    query = build_query(request)
+    try:
+        raw = retrieve(query, request.output_visibility, cfg.top_k_primary, cfg.top_k_secondary)
+    except TypeError:                                  # older signature: retrieve(query, visibility, top_k)
+        raw = retrieve(query, request.output_visibility, max(cfg.top_k_primary, cfg.top_k_secondary))
+    return _as_context(raw, request)
 
 
 def sufficient(context: RetrievalContext) -> bool:
@@ -91,6 +144,9 @@ def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = 
                  save: bool = True) -> GeneratedDraft:
     """Contract §5.4. Pass `context` to skip retrieval (fixtures / tests)."""
     if not request.primary_context and not request.secondary_context:
+        missing = unknown_systems(request) if context is None else []
+        if missing:
+            return insufficient_draft(request, f"AI system not found in the company documents: {', '.join(missing)}")
         context = context or retrieve_context(request)
         context.output_visibility = request.output_visibility
         if not sufficient(context):

@@ -25,7 +25,7 @@ def generate(request_type, ai_system, document_type, topic, visibility, feedback
         request_type=request_type, document_type=document_type, ai_system=ai_system or DEFAULT_SYSTEM,
         topic=topic, output_visibility=visibility,
         selected_findings=[f"Reviewer feedback to apply: {feedback}"] if feedback else [])
-    context = retrieval_context_from_dict(json.loads(FIXTURE.read_text())) if use_fixture else None
+    context = retrieval_context_from_dict(json.loads(FIXTURE.read_text(encoding="utf-8"))) if use_fixture else None
     try:
         draft = run_pipeline(request, context, save=False)
     except (ConfigurationError, RetrievalError, GenerationError) as exc:
@@ -77,8 +77,9 @@ def upload(files, kb):
 
 
 def register(ai_system):
-    return [[r["requirement_id"], r["requirement"], r["ai_act_reference"], r["status"], r["sources"],
-             r["updated_at"], r["approved_by"]] for r in gap_register.status_table(ai_system or DEFAULT_SYSTEM)]
+    icon = {"open": "🔴 open", "complete": "🟢 complete", "re_check": "🟡 re_check"}
+    return [[r["requirement_id"], icon.get(r["status"], r["status"]), r["approved_by"], r["updated_at"][:16],
+             r["ai_act_reference"], r["requirement"]] for r in gap_register.status_table(ai_system or DEFAULT_SYSTEM)]
 
 
 with gr.Blocks(title="AI Governance Copilot") as demo:
@@ -119,7 +120,7 @@ with gr.Blocks(title="AI Governance Copilot") as demo:
     with gr.Tab("3 · Gap register"):
         reg_sys = gr.Textbox(DEFAULT_SYSTEM, label="AI system")
         reg_btn = gr.Button("Refresh")
-        reg_tbl = gr.Dataframe(headers=["ID", "Requirement", "EU AI Act", "Status", "Sources", "Updated", "Approved by"])
+        reg_tbl = gr.Dataframe(headers=["ID", "Status", "Approved by", "Updated", "EU AI Act", "Requirement"], wrap=True)
         reg_btn.click(register, reg_sys, reg_tbl)
         demo.load(register, reg_sys, reg_tbl)
 
