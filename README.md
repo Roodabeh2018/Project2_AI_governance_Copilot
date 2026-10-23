@@ -29,7 +29,9 @@ All company documents are synthetic. Do not add confidential real company data. 
 7. Run the ingestion/indexing flow, then generate a draft using the CLI.
    The index is stored in `cache/vectors.npy` with its vector-to-chunk mapping
    in `cache/metadata.json`; reload it with `load_index(CACHE_DIR)` from
-   `src.indexing`.
+   `src.indexing`. Retrieval independently ranks Primary and Secondary evidence
+   and saves the result, including relevance scores and citations, to
+   `cache/retrieved_context.json`.
 8. Review citations, placeholders and output status before presenting.
 
 ## Suggested demo

@@ -95,6 +95,9 @@ def build_index(chunks: list[SourceChunk], index_path: Path) -> None:
         raise ValueError("Cannot build an index without chunks.")
     if not all(isinstance(chunk, SourceChunk) for chunk in chunks):
         raise SchemaValidationError("Index input must contain SourceChunk values.")
+    chunk_ids = [chunk.chunk_id for chunk in chunks]
+    if len(chunk_ids) != len(set(chunk_ids)):
+        raise SchemaValidationError("Index input contains duplicate chunk_id values.")
 
     vectors = _embed_texts([chunk.text for chunk in chunks])
     if vectors.ndim != 2 or vectors.shape[0] != len(chunks):
@@ -183,6 +186,9 @@ def load_index(index_path: Path = CACHE_DIR) -> LocalVectorIndex:
             raise SchemaValidationError(
                 f"Invalid chunk mapping for vector {vector_id}: {exc}"
             ) from exc
+    chunk_ids = [chunk.chunk_id for chunk in chunks]
+    if len(chunk_ids) != len(set(chunk_ids)):
+        raise SchemaValidationError("Local index contains duplicate chunk_id values.")
     return LocalVectorIndex(vectors=vectors, chunks=chunks)
 
 

@@ -122,3 +122,15 @@ def test_rejects_embedding_model_mismatch_with_same_vector_dimensions(
     )
     with pytest.raises(RetrievalError, match="Rebuild the local index"):
         indexing.load_index(index_dir)
+
+
+def test_rejects_duplicate_chunk_ids_before_embedding(tmp_path, monkeypatch):
+    chunk = indexing.load_chunks(SAMPLE_CHUNKS)[0]
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: pytest.fail("embedding should not run for duplicate chunk IDs"),
+    )
+
+    with pytest.raises(SchemaValidationError, match="duplicate chunk_id"):
+        indexing.build_index([chunk, chunk], tmp_path / "cache")
