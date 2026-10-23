@@ -15,7 +15,19 @@ from src.contracts import (DRAFT_STATUS, ConfigurationError, GeneratedDraft, Gen
 from src.prompts import REQUIRED_HEADINGS, build_prompt, label_context
 
 LABEL = re.compile(r"\b([PS]\d+)\b")
-VERDICT = re.compile(r"\b(fully compliant|is compliant|non-compliant)\b", re.I)
+# Explicit compliance verdicts. A limited safeguard against common phrasings, not a semantic check:
+# the human reviewer remains responsible for catching verdicts phrased in other ways.
+VERDICT = re.compile(
+    r"\b(?:non[-\s]?compliant|noncompliance|non[-\s]compliance)\b"
+    r"|\b(?:fully|partially|largely|entirely)\s+compliant\b"
+    r"|\b(?:is|are|was|were|be|been|being|remains?|appears?\s+to\s+be|seems?\s+to\s+be|considered)\s+"
+    r"(?:fully\s+|partially\s+|not\s+|now\s+)?compliant\b"
+    r"|\b(?:complies|comply|complied)\s+(?:fully\s+)?with\b"
+    r"|\b(?:is|are|was|were|remains?)\s+(?:not\s+)?in\s+(?:full\s+)?compliance\b"
+    r"|\b(?:violates|violated|is\s+in\s+violation\s+of)\b",
+    re.I)
+# The status must be its own line ("Status: Draft — human review required"), not just a phrase somewhere.
+STATUS_LINE = re.compile(rf"^\s*\**Status:?\**:?\s*{re.escape(DRAFT_STATUS)}\s*$", re.M)
 FINDING_STATUSES = {"evidence_found", "evidence_incomplete", "evidence_not_found"}
 
 
@@ -50,8 +62,8 @@ def generate_text(prompt: str) -> str:
 def validate_output(text: str, request: GenerationRequest, labels: dict) -> list[str]:
     """Warnings for the human reviewer. Empty list = all checks passed."""
     warnings = []
-    if DRAFT_STATUS not in text:
-        warnings.append(f"Missing status line '{DRAFT_STATUS}'.")
+    if not STATUS_LINE.search(text):
+        warnings.append(f"Missing status line 'Status: {DRAFT_STATUS}'.")
     for heading in REQUIRED_HEADINGS[request.request_type]:
         if heading not in text:
             warnings.append(f"Missing section: {heading}")
@@ -126,7 +138,7 @@ def parse_findings(text: str) -> list[dict]:
             continue
         if not isinstance(f.get("requirement_id"), str) or not f["requirement_id"].strip():
             problems.append(f"item {i}: requirement_id must be a non-empty string")
-        if f.get("status") not in FINDING_STATUSES:
+        if not isinstance(f.get("status"), str) or f["status"] not in FINDING_STATUSES:
             problems.append(f"item {i}: status must be one of {sorted(FINDING_STATUSES)}")
         sources = f.get("sources", [])
         if not isinstance(sources, list) or not all(isinstance(x, str) for x in sources):
@@ -153,8 +165,8 @@ def source_register(labels: dict, cited: list[str]) -> str:
 
 def ensure_saveable(content: str) -> None:
     """Hard checks before any draft is returned or saved (warnings alone are not enough)."""
-    if DRAFT_STATUS not in content:
-        raise GenerationError(f"Draft is missing the mandatory status line '{DRAFT_STATUS}'.")
+    if not STATUS_LINE.search(content):
+        raise GenerationError(f"Draft is missing the mandatory status line 'Status: {DRAFT_STATUS}'.")
     if VERDICT.search(content):
         raise GenerationError("Generated text contains an explicit compliance verdict — "
                               "the copilot may only describe potential gaps. Regenerate the draft.")
@@ -173,7 +185,7 @@ def generate_draft(request: GenerationRequest) -> GeneratedDraft:
                               citations=[], evidence_status="evidence_not_found", open_questions=[],
                               output_path=None)
 
-    if DRAFT_STATUS not in text:                      # guarantee the status line
+    if not STATUS_LINE.search(text):                  # guarantee a standalone status line
         lines = text.splitlines()
         at = 1 if lines and lines[0].startswith("# ") else 0
         text = "\n".join(lines[:at] + [f"Status: {DRAFT_STATUS}"] + lines[at:])

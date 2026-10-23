@@ -57,10 +57,13 @@ def validate_findings(findings: list[dict], supplied: dict[str, str]) -> list[st
     problems = []
     for f in findings:
         rid, status, sources = f.get("requirement_id"), f.get("status"), f.get("sources", [])
-        if rid not in known:
-            problems.append(f"{rid}: not a requirement in the checklist")
-        if status not in TO_STATUS:
+        if not isinstance(rid, str) or rid not in known:
+            problems.append(f"{rid!r}: not a requirement in the checklist")
+        if not isinstance(status, str) or status not in TO_STATUS:
             problems.append(f"{rid}: unknown evidence status {status!r}")
+        if not isinstance(sources, list) or not all(isinstance(x, str) for x in sources):
+            problems.append(f"{rid}: sources must be a list of labels")
+            continue
         unknown = [s for s in sources if s not in supplied]
         if unknown:
             problems.append(f"{rid}: cites sources that were not supplied ({', '.join(map(str, unknown))})")

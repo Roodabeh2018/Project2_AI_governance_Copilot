@@ -233,8 +233,12 @@ def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = 
         request.primary_context, request.secondary_context = context.primary_results, context.secondary_results
     request.primary_context = visible(request.primary_context, request.output_visibility)
     request.secondary_context = visible(request.secondary_context, request.output_visibility)
-    if not request.primary_context and not request.secondary_context:
-        return insufficient_draft(request, f"no {request.output_visibility} source left after visibility filtering")
+    filtered = RetrievalContext(query=build_query(request), output_visibility=request.output_visibility,
+                                retrieval_status="success", primary_results=request.primary_context,
+                                secondary_results=request.secondary_context)
+    if not sufficient(filtered):                      # judged on what the LLM would actually receive
+        return insufficient_draft(request, f"no sufficient {request.output_visibility} source "
+                                           "left after visibility filtering")
     draft = generate_draft(request)
     if save and draft.status != "insufficient_source":
         save_markdown(draft)

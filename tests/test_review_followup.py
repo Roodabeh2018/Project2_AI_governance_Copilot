@@ -141,3 +141,67 @@ def test_saved_markdown_contains_full_locators():
 def test_malformed_findings_raise_generation_error(payload):
     with pytest.raises(GenerationError):
         llm_generator.parse_findings(f"```json\n{payload}\n```")
+
+
+# --- Re-review of e2acabe ---
+
+@pytest.mark.parametrize("sentence", [
+    "Northstar Digital Bank complies with the EU AI Act.",
+    "Northstar Digital Bank is noncompliant with the EU AI Act.",
+    "The system is compliant with Article 14.",
+    "The bank is not compliant with Article 26.",
+    "The system is fully compliant.",
+    "Northstar is in full compliance with the AI Act.",
+    "The deployer violates Article 26(5).",
+])
+def test_common_compliance_verdicts_are_rejected(monkeypatch, sentence):
+    monkeypatch.setattr(llm_generator, "generate_text",
+                        lambda prompt: llm_generator._mock_answer(prompt) + f"\n{sentence} [P1]")
+    with pytest.raises(GenerationError, match="compliance verdict"):
+        pipeline.run_pipeline(_req(), _ctx(), save=False)
+
+
+@pytest.mark.parametrize("sentence", [
+    "The plan supports ensuring compliance with relevant regulations [S1].",
+    "This draft is not a compliance determination [P1].",
+])
+def test_non_verdict_compliance_wording_is_allowed(monkeypatch, sentence):
+    monkeypatch.setattr(llm_generator, "generate_text",
+                        lambda prompt: llm_generator._mock_answer(prompt) + f"\n{sentence}")
+    assert pipeline.run_pipeline(_req(), _ctx(), save=False).status == DRAFT_STATUS
+
+
+def test_sufficiency_is_judged_on_the_filtered_context(monkeypatch):
+    """Strong internal evidence + weak public results: after filtering, the weak rest is not enough."""
+    import types
+    strong = lambda ctx: any(r.score >= 0.5 for r in ctx.primary_results + ctx.secondary_results)  # noqa: E731
+    monkeypatch.setitem(sys.modules, "src.retrieval", types.SimpleNamespace(has_sufficient_source=strong))
+    ctx = _ctx()
+    for r in ctx.secondary_results:
+        r.score = 0.1                                            # weak public results
+    called = []
+    monkeypatch.setattr(llm_generator, "generate_text", lambda prompt: called.append(prompt) or "")
+    draft = pipeline.run_pipeline(_req(visibility="public"), ctx, save=False)
+    assert draft.status == "insufficient_source" and called == []
+
+    req = _req(visibility="public")                              # pre-populated path
+    req.primary_context, req.secondary_context = ctx.primary_results, ctx.secondary_results
+    assert pipeline.run_pipeline(req, save=False).status == "insufficient_source" and called == []
+
+
+def test_status_phrase_elsewhere_does_not_count_as_status_line(monkeypatch):
+    def answer(prompt):
+        return llm_generator._mock_answer(prompt).replace(
+            f"Status: {DRAFT_STATUS}", f"Source document label: {DRAFT_STATUS}")
+    monkeypatch.setattr(llm_generator, "generate_text", answer)
+    draft = pipeline.run_pipeline(_req(), _ctx(), save=False)
+    assert f"\nStatus: {DRAFT_STATUS}\n" in draft.content_markdown
+    draft.content_markdown = draft.content_markdown.replace(f"Status: {DRAFT_STATUS}", "")
+    with pytest.raises(GenerationError, match="status line"):
+        pipeline.save_markdown(draft)
+
+
+@pytest.mark.parametrize("status", ["[]", "{}"])
+def test_non_string_status_raises_generation_error(status):
+    with pytest.raises(GenerationError, match="status"):
+        llm_generator.parse_findings(f'```json\n[{{"requirement_id": "MON-02", "status": {status}, "sources": []}}]\n```')
