@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import inspect
 import json
 import re
@@ -52,34 +53,48 @@ def company_documents():
     return _DOC_CACHE["docs"]
 
 
-def _canonical_index() -> dict:
-    """(kb, file name) and (kb, relative path) → canonical Color A SourceDocument."""
-    index = {}
+def _canonical_index() -> tuple[dict, dict]:
+    """Exact (kb, relative path) index, and a separate basename index used only when unambiguous."""
+    exact, by_name = {}, {}
     for doc in company_documents():
-        index[(doc.kb, doc.source_file)] = doc
-        index[(doc.kb, Path(doc.source_file).name)] = doc
-    return index
+        exact[(doc.kb, doc.source_file)] = doc
+        by_name.setdefault((doc.kb, Path(doc.source_file).name), []).append(doc)
+    return exact, by_name
 
 
-def _as_result(rank: int, item, canonical: dict) -> RetrievalResult | None:
+def _resolve_document(kb, source_file, canonical: tuple[dict, dict]):
+    """Exact path first; basename fallback only when exactly one source matches. Ambiguous → None."""
+    exact, by_name = canonical
+    if (kb, source_file) in exact:
+        return exact[(kb, source_file)]
+    matches = by_name.get((kb, Path(str(source_file or "")).name), [])
+    return matches[0] if len(matches) == 1 else None
+
+
+def _as_result(rank: int, item, canonical: tuple[dict, dict]) -> RetrievalResult | None:
     """Contract RetrievalResult, or a legacy Color B dict resolved against Color A metadata.
 
     Visibility, source type and document type always come from Color A's canonical document,
-    never from the legacy label. A legacy result that Color A does not know is dropped (fail closed).
+    never from the legacy label. A legacy result that Color A does not know, or that matches more
+    than one canonical source, is dropped (fail closed).
     """
     if isinstance(item, RetrievalResult):
         return item
-    doc = canonical.get((item.get("kb"), item.get("source_file")))
+    doc = _resolve_document(item.get("kb"), item.get("source_file"), canonical)
     if doc is None:
         return None
     section = item.get("section") or doc.title
+    text = FRONT_MATTER.sub("", item.get("text", ""))
+    # Keep a canonical chunk ID when Color B supplies one; otherwise derive a stable ID that also
+    # depends on the excerpt text, so repeated section titles never share an ID.
+    fallback_id = f"{doc.source_id}#{section}#{hashlib.sha256(text.encode('utf-8')).hexdigest()[:10]}"
     chunk = SourceChunk(
-        chunk_id=item.get("chunk_id") or f"{doc.source_id}#{section}",
+        chunk_id=item.get("chunk_id") or fallback_id,
         kb=doc.kb, source_file=doc.source_file, source_type=doc.source_type,
         document_type=doc.document_type, visibility=doc.visibility,
         page_start=item.get("page_start"), page_end=item.get("page_end"),
         section=section, article_or_annex=item.get("article_or_annex"), title=doc.title,
-        text=FRONT_MATTER.sub("", item.get("text", "")),
+        text=text,
         source_locator=item.get("source_locator") or f"{doc.source_file}, {section}")
     return RetrievalResult(rank=rank, score=float(item.get("score", 0)), chunk=chunk,
                            citation=item.get("citation") or chunk.source_locator)

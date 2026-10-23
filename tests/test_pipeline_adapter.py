@@ -140,3 +140,61 @@ def test_retrieval_module_missing_raises_retrieval_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "src.retrieval", None)
     with pytest.raises(RetrievalError):
         pipeline.retrieve_context(_req())
+
+
+# --- Re-review of ad1a9e5 ---
+
+COLLIDING = [
+    _doc("primary", "ai_system_inventory.md", "internal", "System: Credit Decision Support AI"),
+    _doc("secondary", "board_note.md", "internal", "Internal board note"),
+    _doc("secondary", "uploads/board_note.md", "public", "Public uploaded note"),
+    _doc("secondary", "uploads/eu_guidance.md", "public", "Public guidance"),
+]
+
+
+def test_basename_collision_never_assigns_public_metadata_to_internal_text(monkeypatch):
+    monkeypatch.setattr(pipeline, "company_documents", lambda: COLLIDING)
+
+    def legacy(query, output_visibility="internal", top_k=3):
+        return {"primary_results": [],
+                "secondary_results": [_item("secondary", "board_note.md", "public", section="Board"),
+                                      _item("secondary", "uploads/eu_guidance.md", "public", section="Guidance")]}
+    _use_retrieve(monkeypatch, legacy)
+    req = _req("public")
+    pipeline.run_pipeline(req, save=False)
+    assert [r.chunk.source_file for r in req.secondary_context] == ["uploads/eu_guidance.md"]
+    assert all(r.chunk.visibility == "public" for r in req.primary_context + req.secondary_context)
+    assert not any("board_note" in r.chunk.text for r in req.secondary_context)
+
+
+def test_ambiguous_basename_is_dropped_and_unique_basename_resolves(monkeypatch):
+    monkeypatch.setattr(pipeline, "company_documents", lambda: COLLIDING)
+    canonical = pipeline._canonical_index()
+    assert pipeline._resolve_document("secondary", "board_note.md", canonical).visibility == "internal"  # exact path wins
+    assert pipeline._resolve_document("secondary", "uploads/board_note.md", canonical).visibility == "public"
+    assert pipeline._resolve_document("secondary", "eu_guidance.md", canonical).source_file == "uploads/eu_guidance.md"
+    two = [d for d in COLLIDING if d.source_file != "board_note.md"] + [
+        _doc("secondary", "archive/board_note.md", "internal")]
+    monkeypatch.setattr(pipeline, "company_documents", lambda: two)
+    assert pipeline._resolve_document("secondary", "board_note.md", pipeline._canonical_index()) is None
+
+
+def test_repeated_section_titles_get_distinct_chunk_ids(monkeypatch):
+    def legacy(query, output_visibility="internal", top_k=3):
+        a = _item("primary", "ai_system_inventory.md", "internal", 2, section="Notes")
+        b = _item("primary", "ai_system_inventory.md", "internal", 1, section="Notes")
+        a["text"], b["text"] = "first excerpt", "second excerpt"
+        return {"primary_results": [a, b], "secondary_results": []}
+    _use_retrieve(monkeypatch, legacy)
+    ids = [r.chunk.chunk_id for r in pipeline.retrieve_context(_req()).primary_results]
+    assert len(ids) == 2 and len(set(ids)) == 2
+
+
+def test_canonical_chunk_id_from_color_b_is_preserved(monkeypatch):
+    def legacy(query, output_visibility="internal", top_k=3):
+        item = _item("primary", "ai_system_inventory.md", "internal")
+        item["chunk_id"] = "primary_ai_system_inventory_md_abc123_0002"
+        return {"primary_results": [item], "secondary_results": []}
+    _use_retrieve(monkeypatch, legacy)
+    [r] = pipeline.retrieve_context(_req()).primary_results
+    assert r.chunk.chunk_id == "primary_ai_system_inventory_md_abc123_0002"
