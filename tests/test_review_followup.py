@@ -205,3 +205,23 @@ def test_status_phrase_elsewhere_does_not_count_as_status_line(monkeypatch):
 def test_non_string_status_raises_generation_error(status):
     with pytest.raises(GenerationError, match="status"):
         llm_generator.parse_findings(f'```json\n[{{"requirement_id": "MON-02", "status": {status}, "sources": []}}]\n```')
+
+
+# --- Re-review of ed0fd9e: proposals and disclaimers are not verdicts ---
+
+@pytest.mark.parametrize("sentence", [
+    "Proposed: controls should comply with the applicable requirements [S1].",
+    "The proposed monitoring plan aims to comply with the relevant requirements [S1].",
+    "This draft does not establish that Northstar Digital Bank is compliant [P1].",
+])
+def test_proposals_and_disclaimers_are_not_verdicts(monkeypatch, sentence):
+    monkeypatch.setattr(llm_generator, "generate_text",
+                        lambda prompt: llm_generator._mock_answer(prompt) + f"\n{sentence}")
+    assert pipeline.run_pipeline(_req(), _ctx(), save=False).status == DRAFT_STATUS
+
+
+def test_verdict_followed_by_a_proposal_is_still_rejected(monkeypatch):
+    monkeypatch.setattr(llm_generator, "generate_text", lambda prompt: llm_generator._mock_answer(prompt)
+                        + "\nNorthstar is non-compliant with Article 26 and should fix this [P1].")
+    with pytest.raises(GenerationError, match="compliance verdict"):
+        pipeline.run_pipeline(_req(), _ctx(), save=False)

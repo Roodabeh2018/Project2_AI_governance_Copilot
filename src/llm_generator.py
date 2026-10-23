@@ -26,6 +26,33 @@ VERDICT = re.compile(
     r"|\b(?:is|are|was|were|remains?)\s+(?:not\s+)?in\s+(?:full\s+)?compliance\b"
     r"|\b(?:violates|violated|is\s+in\s+violation\s+of)\b",
     re.I)
+# A verdict-like phrase is NOT a verdict when, earlier in the same sentence, the text either
+# proposes/aims (should, must, aims to, proposed …) or explicitly disclaims a conclusion
+# ("does not establish that …", "not a compliance determination"). Wording after the phrase does not
+# excuse it: "X is non-compliant and should …" is still rejected.
+_PROPOSAL = re.compile(r"\b(?:should|must|shall|will|would|could|may|aims?\s+to|intends?\s+to|intended\s+to|"
+                       r"designed\s+to|in\s+order\s+to|helps?\s+to|to\s+help|propos(?:ed|es|e)|recommend(?:ed|s)?)\b",
+                       re.I)
+_DISCLAIMER = re.compile(r"\b(?:does|do|did|cannot|can\s*not|can't|doesn't|don't)\s+(?:not\s+)?"
+                         r"(?:establish|determine|conclude|confirm|show|prove|imply|state|assess)\b"
+                         r"|\bnot\s+(?:a|an)\s+(?:compliance|legal)\s+(?:determination|assessment|conclusion|opinion)\b"
+                         r"|\bwithout\s+(?:concluding|determining|establishing)\b|\bwhether\b", re.I)
+_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n")
+
+
+def compliance_verdicts(text: str) -> list[str]:
+    """Sentences that state an affirmative compliance / non-compliance verdict (limited safeguard)."""
+    found = []
+    for sentence in _SENTENCE.split(text):
+        for match in VERDICT.finditer(sentence):
+            before = sentence[:match.start()]
+            if _PROPOSAL.search(before) or _DISCLAIMER.search(before):
+                continue
+            found.append(sentence.strip())
+            break
+    return found
+
+
 # The status must be its own line ("Status: Draft — human review required"), not just a phrase somewhere.
 STATUS_LINE = re.compile(rf"^\s*\**Status:?\**:?\s*{re.escape(DRAFT_STATUS)}\s*$", re.M)
 FINDING_STATUSES = {"evidence_found", "evidence_incomplete", "evidence_not_found"}
@@ -90,7 +117,7 @@ def validate_output(text: str, request: GenerationRequest, labels: dict) -> list
             warnings.append("Proposed Content does not name any requirement [S#] it implements.")
     if re.search(r"\{[a-z_]+\}", text):
         warnings.append("Unfilled template placeholder found.")
-    if VERDICT.search(text):
+    if compliance_verdicts(text):
         warnings.append("Contains a compliance verdict — rephrase as a potential gap.")
     if request.output_visibility == "public":
         internal = [lab for lab in cited if lab in labels and labels[lab].chunk.visibility != "public"]
@@ -167,7 +194,7 @@ def ensure_saveable(content: str) -> None:
     """Hard checks before any draft is returned or saved (warnings alone are not enough)."""
     if not STATUS_LINE.search(content):
         raise GenerationError(f"Draft is missing the mandatory status line 'Status: {DRAFT_STATUS}'.")
-    if VERDICT.search(content):
+    if compliance_verdicts(content):
         raise GenerationError("Generated text contains an explicit compliance verdict — "
                               "the copilot may only describe potential gaps. Regenerate the draft.")
 
@@ -189,7 +216,7 @@ def generate_draft(request: GenerationRequest) -> GeneratedDraft:
         lines = text.splitlines()
         at = 1 if lines and lines[0].startswith("# ") else 0
         text = "\n".join(lines[:at] + [f"Status: {DRAFT_STATUS}"] + lines[at:])
-    if VERDICT.search(text):
+    if compliance_verdicts(text):
         raise GenerationError("Generated text contains an explicit compliance verdict — "
                               "the copilot may only describe potential gaps. Regenerate the draft.")
     warnings = validate_output(text, request, labels)
