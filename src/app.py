@@ -79,7 +79,7 @@ def upload(files, kb):
 def register(ai_system):
     icon = {"open": "🔴 open", "complete": "🟢 complete", "re_check": "🟡 re_check"}
     return [[r["requirement_id"], icon.get(r["status"], r["status"]), r["approved_by"], r["updated_at"][:16],
-             r["ai_act_reference"], r["requirement"]] for r in gap_register.status_table(ai_system or DEFAULT_SYSTEM)]
+             r["ai_act_reference"], r["requirement"], r["sources"]] for r in gap_register.status_table(ai_system or DEFAULT_SYSTEM)]
 
 
 with gr.Blocks(title="AI Governance Copilot") as demo:
@@ -120,7 +120,7 @@ with gr.Blocks(title="AI Governance Copilot") as demo:
     with gr.Tab("3 · Gap register"):
         reg_sys = gr.Textbox(DEFAULT_SYSTEM, label="AI system")
         reg_btn = gr.Button("Refresh")
-        reg_tbl = gr.Dataframe(headers=["ID", "Status", "Approved by", "Updated", "EU AI Act", "Requirement"], wrap=True)
+        reg_tbl = gr.Dataframe(headers=["ID", "Status", "Approved by", "Updated", "EU AI Act", "Requirement", "Sources"], wrap=True)
         reg_btn.click(register, reg_sys, reg_tbl)
         demo.load(register, reg_sys, reg_tbl)
 

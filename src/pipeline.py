@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import inspect
 import json
+import re
 from pathlib import Path
 
 from src import gap_register
-from src.config import OUTPUT_DIR, ROOT, load_config
-import re
-
-from src.config import PRIMARY_DIR
+from src.config import DATA_DIR, OUTPUT_DIR, PRIMARY_DIR, ROOT, SECONDARY_DIR, load_config
 from src.contracts import (ConfigurationError, GeneratedDraft, GenerationError, GenerationRequest,
                            RetrievalContext, RetrievalError, RetrievalResult, SourceChunk,
                            retrieval_context_from_dict)
@@ -40,46 +39,101 @@ def build_query(request: GenerationRequest) -> str:
     return " ".join(p for p in parts if p)
 
 
-def _as_result(rank: int, item) -> RetrievalResult:
-    """Accept a contract RetrievalResult or a plain dict (older Color B output)."""
+_DOC_CACHE: dict = {"key": None, "docs": []}
+
+
+def company_documents():
+    """Color A canonical SourceDocuments (Primary + Secondary), reloaded only when a KB file changes."""
+    from src.ingestion import load_documents          # Color A module (contract §5.1)
+    key = tuple(sorted((str(f), f.stat().st_mtime_ns, f.stat().st_size)
+                       for d in (PRIMARY_DIR, SECONDARY_DIR) for f in d.rglob("*") if f.is_file()))
+    if _DOC_CACHE["key"] != key:
+        _DOC_CACHE.update(key=key, docs=load_documents(PRIMARY_DIR, SECONDARY_DIR))
+    return _DOC_CACHE["docs"]
+
+
+def _canonical_index() -> dict:
+    """(kb, file name) and (kb, relative path) → canonical Color A SourceDocument."""
+    index = {}
+    for doc in company_documents():
+        index[(doc.kb, doc.source_file)] = doc
+        index[(doc.kb, Path(doc.source_file).name)] = doc
+    return index
+
+
+def _as_result(rank: int, item, canonical: dict) -> RetrievalResult | None:
+    """Contract RetrievalResult, or a legacy Color B dict resolved against Color A metadata.
+
+    Visibility, source type and document type always come from Color A's canonical document,
+    never from the legacy label. A legacy result that Color A does not know is dropped (fail closed).
+    """
     if isinstance(item, RetrievalResult):
         return item
+    doc = canonical.get((item.get("kb"), item.get("source_file")))
+    if doc is None:
+        return None
+    section = item.get("section") or doc.title
     chunk = SourceChunk(
-        chunk_id=item.get("chunk_id") or f"{item.get('kb')}_{item.get('source_file')}_{rank:03d}",
-        kb=item.get("kb", "primary"), source_file=item.get("source_file", "unknown"),
-        source_type=item.get("source_type", "company_document" if item.get("kb") == "primary" else "regulatory_reference"),
-        document_type=item.get("document_type", "unknown"), visibility=item.get("visibility", "internal"),
+        chunk_id=item.get("chunk_id") or f"{doc.source_id}#{section}",
+        kb=doc.kb, source_file=doc.source_file, source_type=doc.source_type,
+        document_type=doc.document_type, visibility=doc.visibility,
         page_start=item.get("page_start"), page_end=item.get("page_end"),
-        section=item.get("section", ""), article_or_annex=item.get("article_or_annex"),
-        title=item.get("title", item.get("section", "")),
+        section=section, article_or_annex=item.get("article_or_annex"), title=doc.title,
         text=FRONT_MATTER.sub("", item.get("text", "")),
-        source_locator=item.get("source_locator", item.get("source_file", "")))
+        source_locator=item.get("source_locator") or f"{doc.source_file}, {section}")
     return RetrievalResult(rank=rank, score=float(item.get("score", 0)), chunk=chunk,
-                           citation=item.get("citation", chunk.source_locator))
+                           citation=item.get("citation") or chunk.source_locator)
 
 
-def _as_context(raw, request: GenerationRequest) -> RetrievalContext:
-    """Normalise Color B output to the contract RetrievalContext (defence against format drift)."""
+def _as_context(raw, request: GenerationRequest, top_k_primary: int, top_k_secondary: int) -> RetrievalContext:
+    """Normalise Color B output to the contract RetrievalContext with independent top-k per KB."""
     if isinstance(raw, RetrievalContext):
+        raw.primary_results = raw.primary_results[:top_k_primary]
+        raw.secondary_results = raw.secondary_results[:top_k_secondary]
         return raw
     if not isinstance(raw, dict):
         raise RetrievalError(f"Unexpected retrieval output type: {type(raw).__name__}")
+    canonical = _canonical_index()
+
+    def resolve(items, k):
+        results = [r for r in (_as_result(i + 1, it, canonical) for i, it in enumerate(items or [])) if r]
+        return [RetrievalResult(rank=i + 1, score=r.score, chunk=r.chunk, citation=r.citation)
+                for i, r in enumerate(results[:k])]
+
     return RetrievalContext(
         query=raw.get("query", build_query(request)),
-        output_visibility=raw.get("output_visibility", request.output_visibility),
+        output_visibility=request.output_visibility,
         retrieval_status=raw.get("retrieval_status", "success"),
-        primary_results=[_as_result(i + 1, r) for i, r in enumerate(raw.get("primary_results", []))],
-        secondary_results=[_as_result(i + 1, r) for i, r in enumerate(raw.get("secondary_results", []))],
+        primary_results=resolve(raw.get("primary_results"), top_k_primary),
+        secondary_results=resolve(raw.get("secondary_results"), top_k_secondary),
         message=raw.get("message"))
 
 
+def _requirement_ids() -> set[str]:
+    path = DATA_DIR / "requirements_checklist.json"
+    return {r["requirement_id"] for r in json.loads(path.read_text(encoding="utf-8"))} if path.exists() else set()
+
+
 def unknown_systems(request: GenerationRequest) -> list[str]:
-    """Named AI systems (e.g. AI-99) that never appear in the company documents."""
-    names = SYSTEM_ID.findall(f"{request.topic} {request.ai_system or ''}")
+    """Named AI systems (e.g. AI-99) that appear in no Primary document (md, txt or pdf, via Color A).
+
+    Requirement IDs from the checklist (e.g. MON-02) are not AI systems and are ignored.
+    """
+    names = [n for n in SYSTEM_ID.findall(f"{request.topic} {request.ai_system or ''}")
+             if n not in _requirement_ids()]
     if request.ai_system and not SYSTEM_ID.fullmatch(request.ai_system):
         names.append(request.ai_system)
-    company_text = " ".join(p.read_text(encoding="utf-8") for p in PRIMARY_DIR.rglob("*.md")).lower()
+    company_text = " ".join(d.text for d in company_documents() if d.kb == "primary").lower()
     return [n for n in dict.fromkeys(names) if n.lower() not in company_text]
+
+
+def _accepts_separate_top_k(fn) -> bool:
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return True
+    return "top_k_primary" in params or len(params) >= 4 or any(
+        p.kind == p.VAR_POSITIONAL for p in params.values())
 
 
 def retrieve_context(request: GenerationRequest) -> RetrievalContext:
@@ -91,11 +145,11 @@ def retrieve_context(request: GenerationRequest) -> RetrievalContext:
                              "run with --fixture tests/fixtures/sample_retrieved_context.json") from exc
     cfg = load_config()
     query = build_query(request)
-    try:
+    if _accepts_separate_top_k(retrieve):             # contract signature
         raw = retrieve(query, request.output_visibility, cfg.top_k_primary, cfg.top_k_secondary)
-    except TypeError:                                  # older signature: retrieve(query, visibility, top_k)
+    else:                                             # legacy: retrieve(query, visibility, top_k) → sliced per KB
         raw = retrieve(query, request.output_visibility, max(cfg.top_k_primary, cfg.top_k_secondary))
-    return _as_context(raw, request)
+    return _as_context(raw, request, cfg.top_k_primary, cfg.top_k_secondary)
 
 
 def sufficient(context: RetrievalContext) -> bool:
