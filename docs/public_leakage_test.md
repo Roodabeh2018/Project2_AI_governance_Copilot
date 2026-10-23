@@ -3,7 +3,9 @@
 Risk from `project_structure.md` §5: *Internal or confidential facts leak into a public post.*
 Safety tests **S05 / S06** in `docs/test_plan.md`: internal and mixed chunks must be excluded **before prompt construction** when the output is public.
 
-All runs: 23 Oct 2026, real LLM (`gpt-4o-mini`, `LLM_PROVIDER=openai`), Windows, conda env `bootcamp-env`.
+All runs: 23 Oct 2026, real LLM (`gpt-4o-mini`, `LLM_PROVIDER=openai`), Windows, conda env `bootcamp-env`, code at PR #13 branch commit `e2acabe` (main `5da8697` + Color C follow-up fixes), legacy Color B retrieval, before PR #12.
+
+**Scope of this test:** it checks **chunk filtering before prompt construction**, i.e. which source chunks the LLM receives. It does **not** prove that the whole generated text is safe to publish. Request fields such as the AI system name and document title are also placed in the prompt, and the model can write any text. Every public output still needs human review before use.
 
 ## Run A: public output with real retrieval
 
@@ -17,7 +19,7 @@ python -m src.pipeline --type governance_document --visibility public --no-revie
 **insufficient source** — no supporting source retrieved
 ```
 
-**Interpretation: PASS (fail closed).** With the current Color B retrieval, no chunk that Color A marks `public` was retrieved for this query. The pipeline did **not** fall back to internal documents. It stopped with `insufficient_source` and saved nothing.
+**Interpretation: PASS for chunk filtering (fail closed).** With the legacy Color B retrieval, no chunk that Color A marks `public` was retrieved for this query. The pipeline did **not** fall back to internal documents. It stopped with `insufficient_source` and saved nothing.
 
 ## Run B: public output with mixed internal and public context
 
@@ -42,16 +44,21 @@ python -m src.pipeline --type governance_document --visibility public --fixture 
 | Check | Result |
 |---|---|
 | Any internal chunk in the Source Register? | **No.** All 3 internal Primary chunks were removed before the prompt was built; only `[S#]` labels exist |
-| Internal facts in the text? (e.g. "[NOT RECORDED]" inventory fields, "no approved monitoring schedule", "deputy/backup accountable person") | **None found** |
-| "Evidence Found" section | "None", which is correct because no company evidence is allowed in a public output |
+| Text from the removed internal chunks in the output? (e.g. "[NOT RECORDED]" inventory fields, "no approved monitoring schedule", "deputy/backup accountable person") | **None found** (manual check of these phrases) |
+| Text from request fields in the output? | **Yes.** The title and purpose contain "Credit Decision Support AI", which comes from the request field `ai_system`, not from any public-tagged source |
+| "Evidence Found" section | "None". The fixture contains no Primary chunk tagged `public` (the contract allows Primary chunks that are explicitly tagged public), so no company evidence was available |
 | Draft status line | `Status: Draft — human review required` |
 | Automatic checks | ✅ All checks passed |
 
-**Interpretation: PASS.** Internal content never reached the LLM.
+**Interpretation: PASS for chunk filtering.** None of the internal chunks reached the LLM.
+
+**Limitation, request fields:** the name "Credit Decision Support AI" in the public output was supplied by the user in the request, not retrieved. Visibility filtering applies to retrieved chunks only. Request fields are passed to the prompt as typed, so a public request should not name internal systems or details unless they are approved for publication. Proposed follow-up: for public outputs, omit or generalise the `ai_system` field, as `build_query()` already does for retrieval.
 
 **Finding to improve:** the model wrote a literal `[P#]` next to several gap bullets, e.g. "Monitoring owner: [OWNER TO CONFIRM] [P#] [S1]". It is not a real label and no internal content is behind it, but it is noise in a public draft. The output validator does not catch it yet, because it only recognises real labels such as `P1`. Proposed follow-up: flag `[P#]` / `[S#]` template residue as an automatic-check warning.
 
 ## Automated regression tests (offline, `LLM_PROVIDER=mock`)
+
+Tests marked *(PR #13)* exist only once PR #13 is merged; on main `5da8697` alone the first three apply.
 
 | Test | What it proves |
 |---|---|
@@ -67,14 +74,14 @@ Run them with:
 python -m pytest -q
 ```
 
-## Defence in depth
+## Defence in depth (for retrieved chunks)
 
 1. **Color A** assigns `visibility` from each document's front matter (canonical metadata).
 2. **Color B** filters by visibility during retrieval.
 3. **Color C** filters again before prompt construction, on every context path. It takes visibility from Color A, drops sources it cannot resolve unambiguously, and re-checks sufficiency after filtering.
 4. **Output validator** warns if a public output cites an internal label.
-5. **Human review**: nothing is published automatically.
+5. **Human review**: nothing is published automatically. This is also the safeguard for text that does not come from chunks (request fields, model wording).
 
-## Limitation
+## Limitation: real retrieval
 
 Run A cannot show a positive public draft from real retrieval yet, because the current retrieval does not search the EU AI Act PDF. Murat's PR #12 (local vector index + separate KB retrieval) addresses this. Run A should be repeated after it is merged.

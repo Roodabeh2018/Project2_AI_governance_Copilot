@@ -31,7 +31,16 @@ Use the fixtures defined in `docs/shared_engineering_contract.md`: at least two 
 
 ## Results — 23 Oct 2026
 
-Automated suite: `python -m pytest -q` → **74 passed** (main + PR #13, `LLM_PROVIDER=mock`, pypdf 6.x). Real-LLM runs used `gpt-4o-mini`; their outputs are under `outputs/`.
+Automated suite, `python -m pytest -q` (`LLM_PROVIDER=mock`, pypdf 6.x), by tested combination:
+
+| Code | Result |
+|---|---|
+| `main` `5da8697` (this branch's base) | 56 passed |
+| PR #13 `e2acabe` (main + Color C follow-up) | 74 passed |
+| PR #13 `2424c7d` (after two re-reviews) | 91 passed |
+| main + PR #13 + PR #12 `b8e88b5` (temporary local merge) | 97 passed |
+
+Real-LLM runs used `gpt-4o-mini` on PR #13 `e2acabe` with the legacy Color B retrieval (before PR #12); their outputs are under `outputs/`. Rows citing `tests/test_review_followup.py` require PR #13.
 
 | ID | Status | Evidence |
 |---|---|---|

@@ -1,5 +1,7 @@
 # Demo Script — 5 Minutes
 
+**Prerequisites:** PR #12 (Color B vector index) and PR #13 (Color C checks) merged into `main`. Without PR #12 there is no EU AI Act context and public output returns *insufficient source*; without PR #13 the approval validation shown at 2:40 is not in place.
+
 **Setup before the demo:** `conda activate bootcamp-env`, project folder open, `.env` with `LLM_PROVIDER=openai`, index built (README step 3), `python -m src.app` running at http://127.0.0.1:7860.
 **Backup if the API fails:** set `LLM_PROVIDER=mock` and tick *"Use sample context"* in the app, or open the saved outputs listed below.
 
@@ -11,7 +13,7 @@
 | 2:40–3:20 | Color C | Switch to *internal_update* → **Generate** → enter reviewer name → **Approve** → tab **3 · Gap register** | "Only a human approval updates the register, and only when every finding is backed by a supplied source. Uploading a new regulation sets complete items back to *re_check*." |
 | 3:20–3:50 | Color C | Visibility → *public* → **Generate** (or show `docs/public_leakage_test.md`) | "Public output only ever sees public-tagged chunks. Internal facts are removed before the prompt is built. If nothing public is left, we answer *insufficient source*." |
 | 3:50–4:10 | Color C | AI system → `AI-99` → **Generate** | "An unknown system gives *insufficient source* instead of an invented answer." |
-| 4:10–4:50 | All | `docs/uniqueness_comparison.md` side by side with ChatGPT | "ChatGPT invents thresholds like PSI > 0.20 and eight owner roles. The Copilot finds 22 cited, company-specific gaps and keeps every unknown as a placeholder." |
+| 4:10–4:50 | All | `docs/uniqueness_comparison.md` side by side with ChatGPT | "Without our documents, ChatGPT can only propose a generic framework, with proposed thresholds such as PSI > 0.20 and assumed roles. The Copilot reports what Northstar's own documents record and what is not documented in them, with 22 cited statements, and leaves unknown values as placeholders for the owner." |
 | 4:50–5:00 | All | Trello board (Day 1 / Day 2 screenshots) | Lessons learned: shared contract + fixtures let three people build in parallel; PR reviews caught real safety bugs (visibility, gap register validation). |
 
 ## Saved outputs to fall back on
@@ -20,6 +22,6 @@
 - `outputs/governance_documents/governance_document_20261023_1441.md`: public output (leakage test Run B)
 
 ## Likely questions
-- **Why RAG, not just ChatGPT?** Traceability to company files, visibility filtering, and no invented values. See `rag_decision.md`.
+- **Why RAG, not just ChatGPT?** Traceability to company files, visibility filtering, and placeholders instead of assumed values. See `rag_decision.md`.
 - **Is this a compliance assessment?** No. It drafts documents for human review and never declares compliance or non-compliance.
 - **What did it cost?** gpt-4o-mini drafts cost a fraction of a cent each; embeddings are built once and cached (budget €5).
