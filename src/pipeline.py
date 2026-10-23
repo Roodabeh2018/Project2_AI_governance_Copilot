@@ -225,7 +225,8 @@ def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = 
     if not request.primary_context and not request.secondary_context:
         missing = unknown_systems(request) if context is None else []
         if missing:
-            return insufficient_draft(request, f"AI system not found in the company documents: {', '.join(missing)}")
+            return insufficient_draft(request, f"AI system not found in the company documents: {', '.join(missing)}; "
+                                            "this does not establish whether the system exists elsewhere.")
         context = context or retrieve_context(request)
         context.output_visibility = request.output_visibility
         if not sufficient(context):
