@@ -48,7 +48,20 @@ Status: {status}
 ## Proposed Content          (the draft document itself, as sub-sections; each sub-section names the requirement it
                              implements with its [S#] label; every value not in the context is a placeholder; mark proposals "Proposed")
 ## Open Questions            (bullets)
-Overall evidence status: <evidence_found | evidence_incomplete | evidence_not_found>"""
+Overall evidence status: <evidence_found | evidence_incomplete | evidence_not_found>
+
+EXAMPLE of the expected style (fictional lines — copy the FORMAT, never the content):
+## Evidence Incomplete or Not Found
+- Review owner: [OWNER TO CONFIRM] [P4] [S2]
+- Review frequency: [MONITORING FREQUENCY TO CONFIRM] [P4] [S2]
+- Alert threshold for data drift: [THRESHOLD TO CONFIRM] [P5]
+- Response time after an alert: [THRESHOLD TO CONFIRM] [P5] [S1]
+- Signed test report: [EVIDENCE TO PROVIDE] [P6]
+## Proposed Content
+### 1. Roles (implements [S2])
+- Proposed: review owner [OWNER TO CONFIRM]; deputy [OWNER TO CONFIRM].
+### 2. Review cycle (implements [S1])
+- Proposed: review every [MONITORING FREQUENCY TO CONFIRM]; escalate within [THRESHOLD TO CONFIRM]."""
 
 INTERNAL_UPDATE = """TASK: Write an internal AI governance update about "{topic}" for the AI system "{ai_system}".
 Audience: Operational Risk and AI Governance. Max 300 words before the JSON block.
