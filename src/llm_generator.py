@@ -15,6 +15,8 @@ from src.contracts import (DRAFT_STATUS, ConfigurationError, GeneratedDraft, Gen
 from src.prompts import REQUIRED_HEADINGS, build_prompt, label_context
 
 LABEL = re.compile(r"\b([PS]\d+)\b")
+VERDICT = re.compile(r"\b(fully compliant|is compliant|non-compliant)\b", re.I)
+FINDING_STATUSES = {"evidence_found", "evidence_incomplete", "evidence_not_found"}
 
 
 def generate_text(prompt: str) -> str:
@@ -76,7 +78,7 @@ def validate_output(text: str, request: GenerationRequest, labels: dict) -> list
             warnings.append("Proposed Content does not name any requirement [S#] it implements.")
     if re.search(r"\{[a-z_]+\}", text):
         warnings.append("Unfilled template placeholder found.")
-    if re.search(r"\b(fully compliant|is compliant|non-compliant)\b", text, re.I):
+    if VERDICT.search(text):
         warnings.append("Contains a compliance verdict — rephrase as a potential gap.")
     if request.output_visibility == "public":
         internal = [lab for lab in cited if lab in labels and labels[lab].chunk.visibility != "public"]
@@ -103,23 +105,59 @@ def _overall_evidence_status(text: str) -> str:
 
 
 def parse_findings(text: str) -> list[dict]:
-    """Findings JSON block (internal_update) → list of {requirement_id, status, sources, note}."""
+    """Findings JSON block (internal_update) → list of {requirement_id, status, sources, note}.
+
+    Structure is validated here; anything malformed raises GenerationError instead of a raw TypeError.
+    No block → [] (nothing to record).
+    """
     match = re.search(r"```json\s*(.*?)```", text, re.S)
     if not match:
         return []
     try:
         data = json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return []
-    return [f for f in data if isinstance(f, dict) and f.get("requirement_id")]
+    except json.JSONDecodeError as exc:
+        raise GenerationError(f"Findings JSON is not valid JSON: {exc}") from exc
+    if not isinstance(data, list):
+        raise GenerationError(f"Findings JSON must be a list of objects, got {type(data).__name__}.")
+    problems = []
+    for i, f in enumerate(data, start=1):
+        if not isinstance(f, dict):
+            problems.append(f"item {i} is {type(f).__name__}, not an object")
+            continue
+        if not isinstance(f.get("requirement_id"), str) or not f["requirement_id"].strip():
+            problems.append(f"item {i}: requirement_id must be a non-empty string")
+        if f.get("status") not in FINDING_STATUSES:
+            problems.append(f"item {i}: status must be one of {sorted(FINDING_STATUSES)}")
+        sources = f.get("sources", [])
+        if not isinstance(sources, list) or not all(isinstance(x, str) for x in sources):
+            problems.append(f"item {i}: sources must be a list of labels such as [\"P1\", \"S2\"]")
+        if "note" in f and not isinstance(f["note"], str):
+            problems.append(f"item {i}: note must be text")
+    if problems:
+        raise GenerationError("Invalid findings JSON: " + "; ".join(problems))
+    return data
+
+
+def _cell(value) -> str:
+    return str(value if value is not None else "").replace("|", "\\|").replace("\n", " ")
 
 
 def source_register(labels: dict, cited: list[str]) -> str:
-    rows = ["| Label | Source | Section | KB | Visibility | Cited |", "|---|---|---|---|---|---|"]
+    rows = ["| Label | Source | Section | Locator | KB | Visibility | Cited |", "|---|---|---|---|---|---|---|"]
     for lab, r in labels.items():
-        rows.append(f"| {lab} | {r.chunk.source_file} | {r.chunk.section} | {r.chunk.kb} | "
+        rows.append(f"| {lab} | {_cell(r.chunk.source_file)} | {_cell(r.chunk.section)} | "
+                    f"{_cell(r.citation or r.chunk.source_locator)} | {r.chunk.kb} | "
                     f"{r.chunk.visibility} | {'yes' if lab in cited else 'no'} |")
     return "\n".join(rows)
+
+
+def ensure_saveable(content: str) -> None:
+    """Hard checks before any draft is returned or saved (warnings alone are not enough)."""
+    if DRAFT_STATUS not in content:
+        raise GenerationError(f"Draft is missing the mandatory status line '{DRAFT_STATUS}'.")
+    if VERDICT.search(content):
+        raise GenerationError("Generated text contains an explicit compliance verdict — "
+                              "the copilot may only describe potential gaps. Regenerate the draft.")
 
 
 def generate_draft(request: GenerationRequest) -> GeneratedDraft:
@@ -135,6 +173,13 @@ def generate_draft(request: GenerationRequest) -> GeneratedDraft:
                               citations=[], evidence_status="evidence_not_found", open_questions=[],
                               output_path=None)
 
+    if DRAFT_STATUS not in text:                      # guarantee the status line
+        lines = text.splitlines()
+        at = 1 if lines and lines[0].startswith("# ") else 0
+        text = "\n".join(lines[:at] + [f"Status: {DRAFT_STATUS}"] + lines[at:])
+    if VERDICT.search(text):
+        raise GenerationError("Generated text contains an explicit compliance verdict — "
+                              "the copilot may only describe potential gaps. Regenerate the draft.")
     warnings = validate_output(text, request, labels)
     cited = sorted(set(LABEL.findall(text)) & set(labels), key=lambda x: (x[0], int(x[1:])))
     title_match = re.search(r"^# (.+)$", text, re.M)
