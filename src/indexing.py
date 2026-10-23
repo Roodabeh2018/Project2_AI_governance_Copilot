@@ -1,6 +1,8 @@
 """Build and reload the local vector index (Shared Engineering Contract §5.2)."""
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 from dataclasses import dataclass
@@ -105,7 +107,6 @@ def build_index(chunks: list[SourceChunk], index_path: Path) -> None:
         raise RetrievalError("Embedding service returned invalid vector values.")
 
     index_dir = Path(index_path)
-    index_dir.mkdir(parents=True, exist_ok=True)
     metadata = {
         "format_version": INDEX_FORMAT_VERSION,
         "embedding_model": load_config().embedding_model,
@@ -116,7 +117,11 @@ def build_index(chunks: list[SourceChunk], index_path: Path) -> None:
             for vector_id, chunk in enumerate(chunks)
         ],
     }
-    _write_index_files(index_dir, vectors, metadata)
+    try:
+        index_dir.mkdir(parents=True, exist_ok=True)
+        _write_index_files(index_dir, vectors, metadata)
+    except OSError as exc:
+        raise RetrievalError(f"Unable to save local vector index to {index_dir}: {exc}") from exc
 
 
 def load_index(index_path: Path = CACHE_DIR) -> LocalVectorIndex:
@@ -125,7 +130,7 @@ def load_index(index_path: Path = CACHE_DIR) -> LocalVectorIndex:
     vectors_path = index_dir / VECTORS_FILENAME
     metadata_path = index_dir / METADATA_FILENAME
     try:
-        vectors = np.load(vectors_path, allow_pickle=False)
+        vector_bytes = vectors_path.read_bytes()
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise RetrievalError(
@@ -134,6 +139,25 @@ def load_index(index_path: Path = CACHE_DIR) -> LocalVectorIndex:
 
     if not isinstance(metadata, dict) or metadata.get("format_version") != INDEX_FORMAT_VERSION:
         raise SchemaValidationError("Unsupported or invalid local index metadata.")
+    expected_vectors_hash = metadata.get("vectors_sha256")
+    actual_vectors_hash = hashlib.sha256(vector_bytes).hexdigest()
+    if not isinstance(expected_vectors_hash, str) or expected_vectors_hash != actual_vectors_hash:
+        raise SchemaValidationError(
+            "Vector data does not match its metadata; rebuild the local index before using it."
+        )
+    stored_model = metadata.get("embedding_model")
+    configured_model = load_config().embedding_model
+    if not isinstance(stored_model, str) or not stored_model:
+        raise SchemaValidationError("Local index metadata has no embedding model.")
+    if stored_model != configured_model:
+        raise RetrievalError(
+            f"Local index uses embedding model '{stored_model}', but the configured model is "
+            f"'{configured_model}'. Rebuild the local index with the configured model."
+        )
+    try:
+        vectors = np.load(io.BytesIO(vector_bytes), allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        raise SchemaValidationError(f"Unable to decode local vector data: {exc}") from exc
     entries = metadata.get("chunks")
     if not isinstance(entries, list) or not entries:
         raise SchemaValidationError("Local index metadata has no chunk mappings.")
@@ -217,20 +241,29 @@ def _write_index_files(
     vectors: np.ndarray,
     metadata: dict,
 ) -> None:
-    """Replace both index artifacts only after each temporary file is complete."""
+    """Write checksummed artifacts so interrupted replacement is detected."""
     vectors_path = index_dir / VECTORS_FILENAME
     metadata_path = index_dir / METADATA_FILENAME
     vectors_temp = index_dir / f".{VECTORS_FILENAME}.tmp"
     metadata_temp = index_dir / f".{METADATA_FILENAME}.tmp"
+    vector_buffer = io.BytesIO()
+    np.save(vector_buffer, vectors, allow_pickle=False)
+    vector_bytes = vector_buffer.getvalue()
+    metadata["vectors_sha256"] = hashlib.sha256(vector_bytes).hexdigest()
     try:
         with vectors_temp.open("wb") as file:
-            np.save(file, vectors, allow_pickle=False)
+            file.write(vector_bytes)
         metadata_temp.write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
         os.replace(vectors_temp, vectors_path)
         os.replace(metadata_temp, metadata_path)
+    except OSError as exc:
+        raise RetrievalError(f"Unable to write local vector index: {exc}") from exc
     finally:
-        vectors_temp.unlink(missing_ok=True)
-        metadata_temp.unlink(missing_ok=True)
+        try:
+            vectors_temp.unlink(missing_ok=True)
+            metadata_temp.unlink(missing_ok=True)
+        except OSError as exc:
+            raise RetrievalError(f"Unable to clean up temporary index files: {exc}") from exc
