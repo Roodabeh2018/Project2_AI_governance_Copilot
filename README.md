@@ -27,6 +27,11 @@ All company documents are synthetic. Do not add confidential real company data. 
    `knowledge_base/secondary/eu_ai_act/.replace_official_pdf` exists; ordinary
    uploads remain additive.
 7. Run the ingestion/indexing flow, then generate a draft using the CLI.
+   The index is stored in `cache/vectors.npy` with its vector-to-chunk mapping
+   in `cache/metadata.json`; reload it with `load_index(CACHE_DIR)` from
+   `src.indexing`. Retrieval independently ranks Primary and Secondary evidence
+   and saves the result, including relevance scores and citations, to
+   `cache/retrieved_context.json`.
 8. Review citations, placeholders and output status before presenting.
 
 ## Suggested demo

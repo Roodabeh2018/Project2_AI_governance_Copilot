@@ -83,17 +83,6 @@ def test_metadata_comes_from_color_a_and_unknown_sources_are_dropped(monkeypatch
     assert result.chunk.chunk_id.startswith("primary:ai_system_inventory.md")
 
 
-# --- P2: unknown-system detection ---
-
-def test_requirement_ids_are_not_treated_as_ai_systems():
-    assert pipeline.unknown_systems(_req(topic="MON-02 monitoring plan and HUM-01 oversight")) == []
-
-
-def test_systems_documented_in_txt_and_pdf_are_known():
-    assert pipeline.unknown_systems(_req(topic="FS-7 and VM-12 monitoring")) == []
-    assert pipeline.unknown_systems(_req(topic="AI-99 monitoring")) == ["AI-99"]
-
-
 # --- P2: independent top-k per knowledge base ---
 
 def test_legacy_signature_respects_separate_top_k(monkeypatch):

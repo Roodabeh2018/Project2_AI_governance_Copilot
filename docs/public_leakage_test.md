@@ -3,7 +3,7 @@
 Risk from `project_structure.md` §5: *Internal or confidential facts leak into a public post.*
 Safety tests **S05 / S06** in `docs/test_plan.md`: internal and mixed chunks must be excluded **before prompt construction** when the output is public.
 
-All runs: 23 Oct 2026, real LLM (`gpt-4o-mini`, `LLM_PROVIDER=openai`), Windows, conda env `bootcamp-env`, code at PR #13 branch commit `e2acabe` (main `5da8697` + Color C follow-up fixes), legacy Color B retrieval, before PR #12.
+Runs A and B were performed on 23 Oct 2026 with a real LLM (`gpt-4o-mini`, `LLM_PROVIDER=openai`), Windows, conda env `bootcamp-env`, and the PR #13 branch before PR #12. Run C is the separate local-index retrieval/prompt check described below.
 
 **Scope of this test:** it checks **chunk filtering before prompt construction**, i.e. which source chunks the LLM receives. It does **not** prove that the whole generated text is safe to publish. Request fields such as the AI system name and document title are also placed in the prompt, and the model can write any text. Every public output still needs human review before use.
 
@@ -56,9 +56,30 @@ python -m src.pipeline --type governance_document --visibility public --fixture 
 
 **Finding to improve:** the model wrote a literal `[P#]` next to several gap bullets, e.g. "Monitoring owner: [OWNER TO CONFIRM] [P#] [S1]". It is not a real label and no internal content is behind it, but it is noise in a public draft. The output validator does not catch it yet, because it only recognises real labels such as `P1`. Proposed follow-up: flag `[P#]` / `[S#]` template residue as an automatic-check warning.
 
+## Run C: public retrieval with the local vector index
+
+**Run date:** 23 Oct 2026. This run used the local index built from the supplied Primary and
+Secondary chunks and the retrieval evaluation in `tests/evaluate_retrieval.py`. It queried
+“General public information about human oversight and high-risk AI systems” with
+`output_visibility="public"`, then passed the retrieved results to `build_prompt()`.
+No language-model generation was performed for this run.
+
+**Result:**
+
+- Retrieval status: `success`
+- Retrieved results: 5
+- Results with visibility other than `public`: 0
+- Non-public indexed chunk texts found in the constructed prompt: 0
+- Citations equal to each result's `SourceChunk.source_locator`: all passed
+
+**Interpretation: PASS for chunk filtering.** The live local-index run returned public results
+without including non-public chunks in the generated prompt. This checks retrieval, prompt
+construction and citation locators; it does not validate arbitrary text a language model might
+generate. Human review remains required for any public communication.
+
 ## Automated regression tests (offline, `LLM_PROVIDER=mock`)
 
-Tests marked *(PR #13)* exist only once PR #13 is merged; on main `5da8697` alone the first three apply.
+The two tests marked *(PR #13)* were added by that follow-up and are present in the integrated branch.
 
 | Test | What it proves |
 |---|---|
@@ -82,6 +103,5 @@ python -m pytest -q
 4. **Output validator** warns if a public output cites an internal label.
 5. **Human review**: nothing is published automatically. This is also the safeguard for text that does not come from chunks (request fields, model wording).
 
-## Limitation: real retrieval
-
-Run A cannot show a positive public draft from real retrieval yet, because the current retrieval does not search the EU AI Act PDF. Murat's PR #12 (local vector index + separate KB retrieval) addresses this. Run A should be repeated after it is merged.
+Run A records the earlier legacy retrieval behavior before PR #12. Run C records the subsequent
+local-index behavior; it does not replace the still-useful fixture-based Run B.

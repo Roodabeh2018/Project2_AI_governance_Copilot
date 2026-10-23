@@ -71,7 +71,7 @@ def upload(files, kb):
         saved.append(f"\nIndex rebuilt with {len(chunks)} chunks.")
     except ImportError:
         saved.append("\n⚠️ Ingestion/index modules (Color A/B) not merged yet — file saved, index not rebuilt.")
-    except (IngestionError, RetrievalError) as exc:
+    except (ConfigurationError, IngestionError, RetrievalError) as exc:
         saved.append(f"\n**Error while indexing:** {exc}")
     if kb == "secondary":
         changed = gap_register.mark_recheck("new regulation uploaded")

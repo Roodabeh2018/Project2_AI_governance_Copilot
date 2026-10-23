@@ -1,76 +1,204 @@
+"""Retrieve relevant evidence independently from the Primary and Secondary KBs."""
+from __future__ import annotations
+
+import json
 import re
+from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
-ROOT = Path(__file__).resolve().parent.parent
-KB = ROOT / "knowledge_base"
+import numpy as np
 
+from src.config import CACHE_DIR, load_config
+from src.contracts import (
+    RetrievalContext,
+    RetrievalError,
+    RetrievalResult,
+)
+from src.indexing import LocalVectorIndex, _embed_texts, load_index
 
-def load_documents():
-    documents = []
-
-    for folder, kb, visibility in [
-        (KB / "primary", "primary", "internal"),
-        (KB / "secondary", "secondary", "public"),
-    ]:
-        for path in sorted(folder.glob("*.md")):
-            text = path.read_text(encoding="utf-8")
-            sections = re.split(r"(?m)(?=^#{1,3}\s)", text)
-
-            for section in sections:
-                section = section.strip()
-                if not section:
-                    continue
-
-                heading = next(
-                    (line.lstrip("# ").strip()
-                     for line in section.splitlines()
-                     if line.startswith("#")),
-                    path.stem,
-                )
-                documents.append({
-                    "kb": kb,
-                    "visibility": visibility,
-                    "source_file": path.name,
-                    "section": heading,
-                    "text": section,
-                    "source_locator": f"{path.name}, {heading}",
-                })
-
-    return documents
+RETRIEVED_CONTEXT_PATH = CACHE_DIR / "retrieved_context.json"
 
 
-def retrieve(query, output_visibility="internal", top_k=3):
-    terms = set(re.findall(r"\b[a-zA-Z0-9-]{3,}\b", query.lower()))
+def retrieve(
+    query: str,
+    output_visibility: Literal["internal", "public"] = "internal",
+    top_k_primary: int = 3,
+    top_k_secondary: int = 3,
+    *,
+    index_path: Path = CACHE_DIR,
+    context_path: Path = RETRIEVED_CONTEXT_PATH,
+) -> RetrievalContext:
+    """Retrieve separately ranked top-k results and save their context JSON."""
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query must be a non-empty string.")
+    if output_visibility not in {"internal", "public"}:
+        raise ValueError("output_visibility must be 'internal' or 'public'.")
+    if top_k_primary < 1 or top_k_secondary < 1:
+        raise ValueError("top_k_primary and top_k_secondary must be positive.")
+
+    config = load_config()
+    index = load_index(index_path)
+    requested_system = _requested_ai_system(query)
+    if requested_system and not _primary_mentions_system(index, requested_system):
+        context = RetrievalContext(
+            query=query,
+            output_visibility=output_visibility,
+            retrieval_status="insufficient_source",
+            primary_results=[],
+            secondary_results=[],
+            message=(
+                f"No matching Primary evidence was found for AI system '{requested_system}'; "
+                "this does not establish whether the system exists elsewhere."
+            ),
+        )
+        _save_context(context, Path(context_path))
+        return context
+
+    query_vectors = _embed_texts([query])
+    if query_vectors.shape[0] != 1 or query_vectors.shape[1] != index.vectors.shape[1]:
+        raise RetrievalError("Query embedding dimension does not match the local index.")
+    query_vector = query_vectors[0]
+
+    primary_results = _retrieve_group(
+        index,
+        query_vector,
+        "primary",
+        output_visibility,
+        top_k_primary,
+        config.minimum_retrieval_score,
+    )
+    secondary_results = _retrieve_group(
+        index,
+        query_vector,
+        "secondary",
+        output_visibility,
+        top_k_secondary,
+        config.minimum_retrieval_score,
+    )
+    has_results = bool(primary_results or secondary_results)
+    context = RetrievalContext(
+        query=query,
+        output_visibility=output_visibility,
+        retrieval_status="success" if has_results else "insufficient_source",
+        primary_results=primary_results,
+        secondary_results=secondary_results,
+        message=(
+            _inventory_limitation(index, requested_system)
+            if has_results and requested_system
+            else None if has_results
+            else "No chunks met the minimum retrieval score."
+        ),
+    )
+    _save_context(context, Path(context_path))
+    return context
+
+
+def _retrieve_group(
+    index: LocalVectorIndex,
+    query_vector: np.ndarray,
+    kb: Literal["primary", "secondary"],
+    output_visibility: Literal["internal", "public"],
+    top_k: int,
+    minimum_score: float,
+) -> list[RetrievalResult]:
+    selected = [
+        (position, chunk)
+        for position, chunk in enumerate(index.chunks)
+        if chunk.kb == kb
+        and (output_visibility != "public" or chunk.visibility == "public")
+    ]
+    if not selected:
+        return []
+
+    positions = [position for position, _ in selected]
+    chunks = [chunk for _, chunk in selected]
+    group_index = LocalVectorIndex(
+        vectors=index.vectors[positions],
+        chunks=chunks,
+    )
+    matches = group_index.search(query_vector, top_k=top_k)
     results = []
-
-    for doc in load_documents():
-        if output_visibility == "public" and doc["visibility"] != "public":
+    for chunk, score in matches:
+        if score < minimum_score:
             continue
-
-        text_terms = set(re.findall(
-            r"\b[a-zA-Z0-9-]{3,}\b",
-            (doc["section"] + " " + doc["text"]).lower(),
-        ))
-        score = len(terms & text_terms)
-
-        if score:
-            results.append({**doc, "score": score})
-
-    results.sort(key=lambda item: item["score"], reverse=True)
-
-    return {
-        "query": query,
-        "output_visibility": output_visibility,
-        "retrieval_status": "success" if results else "insufficient_source",
-        "primary_results": [r for r in results if r["kb"] == "primary"][:top_k],
-        "secondary_results": [r for r in results if r["kb"] == "secondary"][:top_k],
-    }
+        results.append(
+            RetrievalResult(
+                rank=len(results) + 1,
+                score=score,
+                chunk=chunk,
+                citation=chunk.source_locator,
+            )
+        )
+    return results
 
 
-if __name__ == "__main__":
-    import json
-    import sys
+def _primary_mentions_system(index: LocalVectorIndex, system_name: str) -> bool:
+    for chunk in index.chunks:
+        if chunk.kb != "primary":
+            continue
+        if _contains_system_name(chunk.text, system_name):
+            return True
+        if _contains_system_name(chunk.section, system_name):
+            return True
+    return False
 
-    query = " ".join(sys.argv[1:]) or "human oversight high-risk AI"
-    context = retrieve(query)
-    print(json.dumps(context, indent=2, ensure_ascii=False))
+
+def _inventory_limitation(index: LocalVectorIndex, system_name: str) -> str | None:
+    for chunk in index.chunks:
+        if chunk.kb != "primary" or chunk.document_type != "inventory":
+            continue
+        if _contains_system_name(f"{chunk.section} {chunk.text}", system_name):
+            return None
+    return (
+        f"No matching inventory entry was found for '{system_name}'; retrieval is based "
+        "on other Primary evidence."
+    )
+
+
+def _contains_system_name(text: str, system_name: str) -> bool:
+    normalized_name = " ".join(system_name.split())
+    if not normalized_name:
+        return False
+    name_pattern = r"\s+".join(re.escape(part) for part in normalized_name.split())
+    return re.search(
+        rf"(?<![\w-]){name_pattern}(?![\w-])",
+        text,
+        flags=re.IGNORECASE,
+    ) is not None
+
+
+def _requested_ai_system(query: str) -> str | None:
+    labeled_system = re.search(
+        r"(?:^|[;\n])\s*AI system:\s*([^;\n]+)",
+        query,
+        flags=re.IGNORECASE,
+    )
+    if labeled_system:
+        return labeled_system.group(1).strip().rstrip(".")
+
+    system_id = re.search(
+        r"\bAI-\d{1,4}\b",
+        query,
+        flags=re.IGNORECASE,
+    )
+    return system_id.group(0) if system_id else None
+
+
+def _save_context(context: RetrievalContext, path: Path) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(asdict(context), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise RetrievalError(f"Unable to save retrieved context to {path}: {exc}") from exc
+
+
+def has_sufficient_source(context: RetrievalContext) -> bool:
+    """Return whether retrieval found at least one supported result."""
+    return (
+        context.retrieval_status == "success"
+        and bool(context.primary_results or context.secondary_results)
+    )
