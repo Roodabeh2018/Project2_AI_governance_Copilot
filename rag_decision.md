@@ -26,7 +26,7 @@ RAG is selected because traceability and metadata filtering matter to the use ca
 1. Load Markdown/PDF files.
 2. Parse text and document metadata.
 3. Split into chunks while retaining source filename, section and visibility.
-4. Embed chunks and store them in a local vector index.
+4. Build local TF-IDF vectors from chunks and store them in a JSON vector index.
 5. Retrieve top-k chunks for the user's request, filtering by document visibility.
 6. Pass the retrieved context and a reusable prompt template to the LLM.
 7. Require source references, cautious language and placeholders for unknowns.
@@ -37,6 +37,8 @@ Timebox RAG implementation. If the end-to-end flow is not working by the end of 
 
 ## Limitations
 - RAG can fail to retrieve relevant evidence.
+- The MVP TF-IDF vectors are a lightweight lexical baseline, not semantic model embeddings.
+- The index must be rebuilt after the source chunks change.
 - A missing passage is not proof that a control does not exist.
 - The supplied reference notes may not contain complete/current legal text.
 - RAG is not a legal opinion or compliance certification.

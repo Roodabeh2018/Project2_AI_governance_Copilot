@@ -20,8 +20,15 @@ All company documents are synthetic. Do not add confidential real company data. 
 3. Copy `.env.example` to `.env` and add API keys locally if needed. Never commit `.env`.
 4. Place company documents in `knowledge_base/primary/`.
 5. Place public regulatory/framework references in `knowledge_base/secondary/`.
-6. Run the ingestion/indexing flow, then generate a draft using the CLI.
+6. Generate `cache/chunks.jsonl` from the document-processing stage, then run
+   `python -m src.indexing` to validate the chunks and build the local index.
+   Retrieval uses the saved index when it exists; otherwise it uses the
+   lightweight Markdown keyword fallback.
 7. Review citations, placeholders and output status before presenting.
+
+The local index uses TF-IDF vectors and cosine similarity. It runs offline and
+does not require a paid embedding API; it is a lightweight lexical baseline,
+not a semantic language-model embedding.
 
 ## Suggested demo
 Ask what evidence exists for monitoring of a fictional AI system; show retrieved passages and a potential gap; generate an AI System Monitoring Plan with placeholders for unknowns; generate a short internal update. Explain that the result is a draft and not a compliance determination.

@@ -1,6 +1,11 @@
 import re
 from pathlib import Path
 
+if __package__:
+    from .indexing import INDEX_PATH, load_index, search_index
+else:
+    from indexing import INDEX_PATH, load_index, search_index
+
 ROOT = Path(__file__).resolve().parent.parent
 KB = ROOT / "knowledge_base"
 _VISIBILITIES = {"internal", "public", "mixed"}
@@ -63,6 +68,26 @@ def retrieve(query, output_visibility="internal", top_k=3):
         raise ValueError("top_k must be a positive integer")
     if not isinstance(query, str):
         raise TypeError("query must be a string")
+
+    if INDEX_PATH.exists():
+        index = load_index(INDEX_PATH)
+        primary_results = search_index(
+            query, index, top_k, output_visibility, kb="primary"
+        )
+        secondary_results = search_index(
+            query, index, top_k, output_visibility, kb="secondary"
+        )
+        return {
+            "query": query,
+            "output_visibility": output_visibility,
+            "retrieval_status": (
+                "success"
+                if primary_results or secondary_results
+                else "insufficient_source"
+            ),
+            "primary_results": primary_results,
+            "secondary_results": secondary_results,
+        }
 
     terms = set(re.findall(r"\b[a-zA-Z0-9-]{3,}\b", query.lower()))
     results = []
