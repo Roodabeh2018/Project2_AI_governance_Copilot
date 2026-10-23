@@ -134,30 +134,38 @@ def _retrieve_group(
 
 
 def _primary_mentions_system(index: LocalVectorIndex, system_name: str) -> bool:
-    normalized_name = " ".join(system_name.split()).casefold()
     for chunk in index.chunks:
         if chunk.kb != "primary":
             continue
-        normalized_text = " ".join(chunk.text.split()).casefold()
-        if normalized_name in normalized_text:
+        if _contains_system_name(chunk.text, system_name):
             return True
-        if normalized_name in " ".join(chunk.section.split()).casefold():
+        if _contains_system_name(chunk.section, system_name):
             return True
     return False
 
 
 def _inventory_limitation(index: LocalVectorIndex, system_name: str) -> str | None:
-    normalized_name = " ".join(system_name.split()).casefold()
     for chunk in index.chunks:
         if chunk.kb != "primary" or chunk.document_type != "inventory":
             continue
-        normalized_text = " ".join(f"{chunk.section} {chunk.text}".split()).casefold()
-        if normalized_name in normalized_text:
+        if _contains_system_name(f"{chunk.section} {chunk.text}", system_name):
             return None
     return (
         f"No matching inventory entry was found for '{system_name}'; retrieval is based "
         "on other Primary evidence."
     )
+
+
+def _contains_system_name(text: str, system_name: str) -> bool:
+    normalized_name = " ".join(system_name.split())
+    if not normalized_name:
+        return False
+    name_pattern = r"\s+".join(re.escape(part) for part in normalized_name.split())
+    return re.search(
+        rf"(?<![\w-]){name_pattern}(?![\w-])",
+        text,
+        flags=re.IGNORECASE,
+    ) is not None
 
 
 def _requested_ai_system(query: str) -> str | None:

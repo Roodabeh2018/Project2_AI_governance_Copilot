@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from src import indexing, pipeline, retrieval
+from src import indexing, llm_generator, pipeline, retrieval
 from src.contracts import GenerationRequest
 
 
@@ -158,6 +158,77 @@ def test_unknown_ai_system_returns_insufficient_source_without_generation(
 
 
 @pytest.mark.parametrize(
+    ("requested_id", "documented_id"),
+    [("AI-99", "AI-999"), ("AI-4", "AI-42")],
+)
+def test_system_id_prefix_is_not_supported_by_a_longer_id(
+    requested_id, documented_id, tmp_path, monkeypatch
+):
+    primary_chunk = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_primary_chunks.jsonl"
+    )[0]
+    primary_chunk = replace(
+        primary_chunk,
+        document_type="policy",
+        section=f"Policy evidence for {documented_id}",
+        text=f"The policy documents {documented_id} only.",
+    )
+    secondary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_secondary_chunks.jsonl"
+    )
+    chunks = [primary_chunk, *secondary_chunks]
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: np.tile(
+            np.array([[1.0, 0.0]], dtype=np.float32), (len(texts), 1)
+        ),
+    )
+    index_path = tmp_path / "cache"
+    indexing.build_index(chunks, index_path)
+    monkeypatch.setattr(
+        retrieval,
+        "_embed_texts",
+        lambda texts: pytest.fail("unsupported system IDs must not be embedded"),
+    )
+    monkeypatch.setattr(
+        retrieval,
+        "load_config",
+        lambda: SimpleNamespace(minimum_retrieval_score=0.35),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "retrieve_context",
+        lambda request: retrieval.retrieve(
+            pipeline.build_query(request),
+            request.output_visibility,
+            3,
+            3,
+            index_path=index_path,
+            context_path=tmp_path / f"{requested_id}.json",
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "generate_draft",
+        lambda request: pytest.fail("unsupported system IDs must not reach generation"),
+    )
+    request = GenerationRequest(
+        request_type="internal_update",
+        document_type=None,
+        ai_system=requested_id,
+        topic="monitoring status",
+        output_visibility="internal",
+    )
+
+    draft = pipeline.run_pipeline(request, save=False)
+
+    assert draft.status == "insufficient_source"
+    assert requested_id in draft.content_markdown
+    assert "No matching Primary evidence" in draft.content_markdown
+
+
+@pytest.mark.parametrize(
     "query",
     [
         "What controls are needed for AI-based credit decisions?",
@@ -238,6 +309,174 @@ def test_primary_policy_can_support_system_without_inventory_entry(
     assert "No matching inventory entry was found" in (context.message or "")
     assert all(result.chunk.kb == "primary"
                for result in context.primary_results)
+
+
+def test_inventory_prefix_does_not_suppress_missing_inventory_limitation(
+    tmp_path, monkeypatch
+):
+    primary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_primary_chunks.jsonl"
+    )
+    secondary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_secondary_chunks.jsonl"
+    )
+    policy_for_ai_99 = replace(
+        primary_chunks[0],
+        chunk_id=f"{primary_chunks[0].chunk_id}_ai99",
+        document_type="policy",
+        section="AI Governance Policy",
+        text="The policy documents AI-99.",
+    )
+    inventory_for_ai_999 = replace(
+        primary_chunks[1],
+        chunk_id=f"{primary_chunks[1].chunk_id}_ai999",
+        document_type="inventory",
+        section="System: AI-999",
+        text="The inventory documents AI-999.",
+    )
+    chunks = [
+        policy_for_ai_99,
+        inventory_for_ai_999,
+        *primary_chunks[2:],
+        *secondary_chunks,
+    ]
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: np.tile(
+            np.array([[1.0, 0.0]], dtype=np.float32), (len(texts), 1)
+        ),
+    )
+    index_path = tmp_path / "cache"
+    indexing.build_index(chunks, index_path)
+    monkeypatch.setattr(
+        retrieval,
+        "_embed_texts",
+        lambda texts: np.array([[1.0, 0.0]], dtype=np.float32),
+    )
+
+    context = retrieval.retrieve(
+        "AI system: AI-99; Topic: monitoring status",
+        index_path=index_path,
+        context_path=tmp_path / "ai-99-with-ai-999-inventory.json",
+    )
+
+    assert context.retrieval_status == "success"
+    assert "No matching inventory entry was found" in (context.message or "")
+
+
+def test_pipeline_preserves_missing_inventory_limitation_in_saved_draft(
+    tmp_path, monkeypatch
+):
+    primary_evidence = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_primary_chunks.jsonl"
+    )[0]
+    policy_for_ai_42 = replace(
+        primary_evidence,
+        document_type="policy",
+        section="AI Governance Policy",
+        text="The policy documents AI-42 and describes its monitoring approach.",
+    )
+    secondary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_secondary_chunks.jsonl"
+    )
+    chunks = [policy_for_ai_42, *secondary_chunks]
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: np.tile(
+            np.array([[1.0, 0.0]], dtype=np.float32), (len(texts), 1)
+        ),
+    )
+    index_path = tmp_path / "cache"
+    indexing.build_index(chunks, index_path)
+    monkeypatch.setattr(
+        retrieval,
+        "_embed_texts",
+        lambda texts: np.array([[1.0, 0.0]], dtype=np.float32),
+    )
+    monkeypatch.setattr(
+        retrieval,
+        "load_config",
+        lambda: SimpleNamespace(minimum_retrieval_score=0.35),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "retrieve_context",
+        lambda request: retrieval.retrieve(
+            pipeline.build_query(request),
+            request.output_visibility,
+            3,
+            3,
+            index_path=index_path,
+            context_path=tmp_path / "retrieved-context.json",
+        ),
+    )
+    monkeypatch.setattr(llm_generator, "llm_provider", lambda: "mock")
+    monkeypatch.setattr(pipeline, "OUTPUT_DIR", tmp_path / "outputs")
+    monkeypatch.setattr(pipeline, "ROOT", tmp_path)
+    request = GenerationRequest(
+        request_type="governance_document",
+        document_type="AI System Monitoring Plan",
+        ai_system="AI-42",
+        topic="monitoring status",
+        output_visibility="internal",
+    )
+
+    draft = pipeline.run_pipeline(request, save=True)
+
+    expected_limitation = (
+        "No matching inventory entry was found for 'AI-42'; retrieval is based "
+        "on other Primary evidence."
+    )
+    saved_draft = tmp_path / draft.output_path
+    assert draft.status == "Draft — human review required"
+    assert expected_limitation in draft.open_questions
+    assert "## Retrieval Limitations" in draft.content_markdown
+    assert expected_limitation in draft.content_markdown
+    assert saved_draft.is_file()
+    assert expected_limitation in saved_draft.read_text(encoding="utf-8")
+
+
+def test_exact_inventory_id_suppresses_missing_inventory_limitation(
+    tmp_path, monkeypatch
+):
+    primary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_primary_chunks.jsonl"
+    )
+    secondary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_secondary_chunks.jsonl"
+    )
+    inventory_for_ai_99 = replace(
+        primary_chunks[0],
+        document_type="inventory",
+        section="System: AI-99",
+        text="The inventory documents AI-99.",
+    )
+    chunks = [inventory_for_ai_99, *primary_chunks[1:], *secondary_chunks]
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: np.tile(
+            np.array([[1.0, 0.0]], dtype=np.float32), (len(texts), 1)
+        ),
+    )
+    index_path = tmp_path / "cache"
+    indexing.build_index(chunks, index_path)
+    monkeypatch.setattr(
+        retrieval,
+        "_embed_texts",
+        lambda texts: np.array([[1.0, 0.0]], dtype=np.float32),
+    )
+
+    context = retrieval.retrieve(
+        "AI system: AI-99; Topic: monitoring status",
+        index_path=index_path,
+        context_path=tmp_path / "ai-99-exact-inventory.json",
+    )
+
+    assert context.retrieval_status == "success"
+    assert context.message is None
 
 
 def test_secondary_inventory_cannot_whitelist_internal_ai_system(

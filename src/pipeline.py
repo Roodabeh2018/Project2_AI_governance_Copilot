@@ -194,6 +194,13 @@ def insufficient_draft(request: GenerationRequest, message: str) -> GeneratedDra
                           citations=[], evidence_status="evidence_not_found", open_questions=[], output_path=None)
 
 
+def _preserve_retrieval_message(draft: GeneratedDraft, message: str) -> None:
+    if message not in draft.open_questions:
+        draft.open_questions.append(message)
+    if message not in draft.content_markdown:
+        draft.content_markdown += f"\n\n## Retrieval Limitations\n- {message}\n"
+
+
 # ---------- contract entry point ----------
 
 def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = None,
@@ -209,6 +216,8 @@ def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = 
         context = enforce_visibility(context)
         request.primary_context, request.secondary_context = context.primary_results, context.secondary_results
     draft = generate_draft(request)
+    if context and context.message and request.output_visibility == "internal":
+        _preserve_retrieval_message(draft, context.message)
     if save and draft.status != "insufficient_source":
         save_markdown(draft)
     return draft
