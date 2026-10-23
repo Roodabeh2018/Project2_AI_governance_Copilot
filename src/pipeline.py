@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 
 from src import gap_register
-from src.config import DATA_DIR, OUTPUT_DIR, PRIMARY_DIR, ROOT, SECONDARY_DIR, load_config
+from src.config import OUTPUT_DIR, PRIMARY_DIR, ROOT, SECONDARY_DIR, load_config
 from src.contracts import (ConfigurationError, GeneratedDraft, GenerationError, GenerationRequest,
                            RetrievalContext, RetrievalError, RetrievalResult, SourceChunk,
                            retrieval_context_from_dict)
@@ -27,7 +27,6 @@ from src.llm_generator import generate_draft, parse_findings
 
 DEFAULT_SYSTEM = "Credit Decision Support AI"
 OUTPUT_FOLDERS = {"governance_document": "governance_documents", "internal_update": "internal_updates"}
-SYSTEM_ID = re.compile(r"\b[A-Z]{1,6}-\d{1,4}\b")          # e.g. AI-99
 FRONT_MATTER = re.compile(r"^---\s*\n.*?\n---\s*\n", re.S)
 
 
@@ -130,24 +129,6 @@ def _as_context(raw, request: GenerationRequest, top_k_primary: int, top_k_secon
         message=raw.get("message"))
 
 
-def _requirement_ids() -> set[str]:
-    path = DATA_DIR / "requirements_checklist.json"
-    return {r["requirement_id"] for r in json.loads(path.read_text(encoding="utf-8"))} if path.exists() else set()
-
-
-def unknown_systems(request: GenerationRequest) -> list[str]:
-    """Named AI systems (e.g. AI-99) that appear in no Primary document (md, txt or pdf, via Color A).
-
-    Requirement IDs from the checklist (e.g. MON-02) are not AI systems and are ignored.
-    """
-    names = [n for n in SYSTEM_ID.findall(f"{request.topic} {request.ai_system or ''}")
-             if n not in _requirement_ids()]
-    if request.ai_system and not SYSTEM_ID.fullmatch(request.ai_system):
-        names.append(request.ai_system)
-    company_text = " ".join(d.text for d in company_documents() if d.kb == "primary").lower()
-    return [n for n in dict.fromkeys(names) if n.lower() not in company_text]
-
-
 def _accepts_separate_top_k(fn) -> bool:
     try:
         params = inspect.signature(fn).parameters
@@ -219,9 +200,8 @@ def run_pipeline(request: GenerationRequest, context: RetrievalContext | None = 
                  save: bool = True) -> GeneratedDraft:
     """Contract §5.4. Pass `context` to skip retrieval (fixtures / tests)."""
     if not request.primary_context and not request.secondary_context:
-        missing = unknown_systems(request) if context is None else []
-        if missing:
-            return insufficient_draft(request, f"AI system not found in the company documents: {', '.join(missing)}")
+        # Color B owns the named-system evidence check so retrieval remains the
+        # single source of truth and can still use non-inventory Primary evidence.
         context = context or retrieve_context(request)
         context.output_visibility = request.output_visibility
         if not sufficient(context):

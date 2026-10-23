@@ -40,10 +40,7 @@ def retrieve(
     config = load_config()
     index = load_index(index_path)
     requested_system = _requested_ai_system(query)
-    known_systems = _known_ai_systems(index)
-    if requested_system and requested_system.casefold() not in {
-        system.casefold() for system in known_systems
-    }:
+    if requested_system and not _primary_mentions_system(index, requested_system):
         context = RetrievalContext(
             query=query,
             output_visibility=output_visibility,
@@ -51,9 +48,8 @@ def retrieve(
             primary_results=[],
             secondary_results=[],
             message=(
-                f"No matching AI-system entry was found in the supplied inventory for "
-                f"'{requested_system}'; this does not establish whether the system exists "
-                "elsewhere."
+                f"No matching Primary evidence was found for AI system '{requested_system}'; "
+                "this does not establish whether the system exists elsewhere."
             ),
         )
         _save_context(context, Path(context_path))
@@ -87,7 +83,12 @@ def retrieve(
         retrieval_status="success" if has_results else "insufficient_source",
         primary_results=primary_results,
         secondary_results=secondary_results,
-        message=None if has_results else "No chunks met the minimum retrieval score.",
+        message=(
+            _inventory_limitation(index, requested_system)
+            if has_results and requested_system
+            else None if has_results
+            else "No chunks met the minimum retrieval score."
+        ),
     )
     _save_context(context, Path(context_path))
     return context
@@ -132,15 +133,31 @@ def _retrieve_group(
     return results
 
 
-def _known_ai_systems(index: LocalVectorIndex) -> set[str]:
-    systems = set()
+def _primary_mentions_system(index: LocalVectorIndex, system_name: str) -> bool:
+    normalized_name = " ".join(system_name.split()).casefold()
     for chunk in index.chunks:
-        if chunk.document_type != "inventory":
+        if chunk.kb != "primary":
             continue
-        match = re.match(r"^\s*System:\s*(.+?)\s*$", chunk.section, flags=re.IGNORECASE)
-        if match:
-            systems.add(match.group(1))
-    return systems
+        normalized_text = " ".join(chunk.text.split()).casefold()
+        if normalized_name in normalized_text:
+            return True
+        if normalized_name in " ".join(chunk.section.split()).casefold():
+            return True
+    return False
+
+
+def _inventory_limitation(index: LocalVectorIndex, system_name: str) -> str | None:
+    normalized_name = " ".join(system_name.split()).casefold()
+    for chunk in index.chunks:
+        if chunk.kb != "primary" or chunk.document_type != "inventory":
+            continue
+        normalized_text = " ".join(f"{chunk.section} {chunk.text}".split()).casefold()
+        if normalized_name in normalized_text:
+            return None
+    return (
+        f"No matching inventory entry was found for '{system_name}'; retrieval is based "
+        "on other Primary evidence."
+    )
 
 
 def _requested_ai_system(query: str) -> str | None:
@@ -153,7 +170,7 @@ def _requested_ai_system(query: str) -> str | None:
         return labeled_system.group(1).strip().rstrip(".")
 
     system_id = re.search(
-        r"\bAI[-_][A-Z0-9]+\b",
+        r"\bAI-\d{1,4}\b",
         query,
         flags=re.IGNORECASE,
     )

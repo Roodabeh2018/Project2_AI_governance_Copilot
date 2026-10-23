@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -154,3 +155,130 @@ def test_unknown_ai_system_returns_insufficient_source_without_generation(
     assert "AI-99 does not exist" not in draft.content_markdown
     assert request.primary_context == []
     assert request.secondary_context == []
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "What controls are needed for AI-based credit decisions?",
+        "Explain AI-system monitoring and human oversight",
+    ],
+)
+def test_ordinary_ai_wording_is_not_misread_as_a_system_id(
+    query, tmp_path, monkeypatch
+):
+    index_path, _ = _build_sample_index(tmp_path, monkeypatch)
+    embedded_queries = []
+
+    def embed_query(texts):
+        embedded_queries.extend(texts)
+        return np.array([[1.0, 0.0]], dtype=np.float32)
+
+    monkeypatch.setattr(retrieval, "_embed_texts", embed_query)
+
+    context = retrieval.retrieve(
+        query,
+        index_path=index_path,
+        context_path=tmp_path / "ordinary-wording.json",
+    )
+
+    assert context.retrieval_status == "success"
+    assert embedded_queries == [query]
+
+
+def test_primary_policy_can_support_system_without_inventory_entry(
+    tmp_path, monkeypatch
+):
+    primary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_primary_chunks.jsonl"
+    )
+    secondary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_secondary_chunks.jsonl"
+    )
+    primary_evidence = primary_chunks[0]
+    policy_for_ai_42 = replace(
+        primary_evidence,
+        chunk_id=f"{primary_evidence.chunk_id}_ai42",
+        document_type="policy",
+        section="AI Governance Policy",
+        text="The AI governance policy explicitly documents AI-42.",
+    )
+    fake_secondary_inventory = replace(
+        secondary_chunks[0],
+        chunk_id=f"{secondary_chunks[0].chunk_id}_public_inventory",
+        document_type="inventory",
+        section="System: AI-99",
+        text="System: AI-99 is a public example.",
+    )
+    chunks = [policy_for_ai_42, *primary_chunks[1:], *secondary_chunks, fake_secondary_inventory]
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: np.tile(
+            np.array([[1.0, 0.0]], dtype=np.float32), (len(texts), 1)
+        ),
+    )
+    index_path = tmp_path / "cache"
+    indexing.build_index(chunks, index_path)
+    monkeypatch.setattr(
+        retrieval,
+        "_embed_texts",
+        lambda texts: np.array([[1.0, 0.0]], dtype=np.float32),
+    )
+
+    context = retrieval.retrieve(
+        "AI system: AI-42; Topic: monitoring status",
+        index_path=index_path,
+        context_path=tmp_path / "ai-42.json",
+    )
+
+    assert context.retrieval_status == "success"
+    assert any(result.chunk.chunk_id == policy_for_ai_42.chunk_id
+               for result in context.primary_results)
+    assert "No matching inventory entry was found" in (context.message or "")
+    assert all(result.chunk.kb == "primary"
+               for result in context.primary_results)
+
+
+def test_secondary_inventory_cannot_whitelist_internal_ai_system(
+    tmp_path, monkeypatch
+):
+    primary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_primary_chunks.jsonl"
+    )
+    secondary_chunks = indexing.load_chunks(
+        ROOT / "tests" / "fixtures" / "sample_secondary_chunks.jsonl"
+    )
+    fake_secondary_inventory = replace(
+        secondary_chunks[0],
+        chunk_id=f"{secondary_chunks[0].chunk_id}_public_inventory",
+        document_type="inventory",
+        section="System: AI-99",
+        text="System: AI-99 is a public example.",
+    )
+    chunks = [*primary_chunks, *secondary_chunks, fake_secondary_inventory]
+    monkeypatch.setattr(
+        indexing,
+        "_embed_texts",
+        lambda texts: np.tile(
+            np.array([[1.0, 0.0]], dtype=np.float32), (len(texts), 1)
+        ),
+    )
+    index_path = tmp_path / "cache"
+    indexing.build_index(chunks, index_path)
+    monkeypatch.setattr(
+        retrieval,
+        "_embed_texts",
+        lambda texts: pytest.fail("secondary inventory cannot authorize a system"),
+    )
+
+    context = retrieval.retrieve(
+        "AI system: AI-99; Topic: monitoring status",
+        index_path=index_path,
+        context_path=tmp_path / "ai-99-secondary-only.json",
+    )
+
+    assert context.retrieval_status == "insufficient_source"
+    assert context.primary_results == []
+    assert context.secondary_results == []
+    assert "No matching Primary evidence" in (context.message or "")
