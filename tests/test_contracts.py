@@ -25,7 +25,9 @@ def test_secondary_fixture_preserves_pdf_locator():
 
     assert chunk.kb == "secondary"
     assert chunk.article_or_annex == "Article 14"
-    assert "page=80" in chunk.source_locator
+    assert chunk.page_start == 60
+    assert chunk.page_end == 61
+    assert "pages=60-61" in chunk.source_locator
 
 
 def test_source_document_has_one_shared_metadata_schema():

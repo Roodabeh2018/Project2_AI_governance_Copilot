@@ -28,6 +28,11 @@ SECONDARY_REFERENCE_ONLY_FILES = {
     "source_verification_checklist.md",
 }
 
+# Prepared Article/Annex Markdown may replace the official PDF only when the
+# team explicitly opts in. Ordinary uploads must remain additive and must not
+# silently remove the regulatory baseline.
+SECONDARY_MARKDOWN_REPLACEMENT_MARKER = ".replace_official_pdf"
+
 # Cache only extracted PDF text/title. The file signature prevents stale
 # content after a source file changes during a local development session.
 _PDF_TEXT_CACHE: dict[tuple[str, int, int], tuple[str, str]] = {}
@@ -87,9 +92,9 @@ def _load_root(root: Path, kb: str) -> list[SourceDocument]:
     paths = [path for path in _iter_supported_files(root)
              if kb != "secondary" or _include_secondary(path, root)]
 
-    # Article/Annex Markdown is the preferred representation when the team has
-    # already prepared it. In that case avoid re-parsing the official PDF.
-    if kb == "secondary" and _preferred_secondary_markdown(paths):
+    # Article/Annex Markdown is preferred only when the team explicitly opts in
+    # with the replacement marker. Ordinary uploads remain additive.
+    if kb == "secondary" and _preferred_secondary_markdown(paths, root):
         paths = [path for path in paths if not _is_official_eu_ai_act_pdf(path)]
 
     for path in paths:
@@ -120,7 +125,10 @@ def _include_secondary(path: Path, root: Path) -> bool:
     return True
 
 
-def _preferred_secondary_markdown(paths: list[Path]) -> set[Path]:
+def _preferred_secondary_markdown(paths: list[Path], root: Path) -> set[Path]:
+    replacement_marker = root / "eu_ai_act" / SECONDARY_MARKDOWN_REPLACEMENT_MARKER
+    if not replacement_marker.is_file():
+        return set()
     return {
         path for path in paths
         if path.suffix.lower() in {".md", ".txt"}
@@ -152,6 +160,9 @@ def _load_document(path: Path, root: Path, kb: str) -> SourceDocument:
             title, text, metadata = _read_pdf(path)
         else:
             raw_text = path.read_text(encoding="utf-8")
+            # BOM must be removed before front matter detection. Otherwise a
+            # leading BOM makes the opening '---' line invisible to the parser.
+            raw_text = raw_text.lstrip("\ufeff")
             metadata, body = _parse_front_matter(raw_text)
             text = _normalize_text(body)
             title = metadata.get("title") or _title_from_markdown(text, path)
@@ -207,9 +218,13 @@ def _read_pdf(path: Path) -> tuple[str, str, dict[str, str]]:
         metadata = reader.metadata or {}
         title = str(getattr(metadata, "title", None) or "").strip()
         pages: list[str] = []
+        extracted_page_texts: list[str] = []
         for page_number, page in enumerate(reader.pages, start=1):
             page_text = _normalize_text(page.extract_text() or "")
+            extracted_page_texts.append(page_text)
             pages.append(f"[PAGE {page_number}]\n{page_text}")
+        if not any(page_text.strip() for page_text in extracted_page_texts):
+            raise IngestionError(f"PDF contains no extractable text: {path}")
         text = _normalize_text("\n\n".join(pages), preserve_page_markers=True)
     except Exception as exc:
         raise IngestionError(f"Unable to extract PDF {path}: {exc}") from exc

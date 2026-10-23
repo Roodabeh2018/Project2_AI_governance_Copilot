@@ -86,19 +86,37 @@ def validate_knowledge_base(
             errors.append(str(exc))
             chunks = []
 
-    known_sources = {(document.kb, document.source_file) for document in documents}
+    source_by_key = {(document.kb, document.source_file): document for document in documents}
     valid_chunks: list[SourceChunk] = []
+    seen_chunk_ids: set[str] = set()
     for index, chunk in enumerate(chunks, start=1):
         try:
             validate_source_chunk(chunk)
         except (SchemaValidationError, AttributeError) as exc:
             errors.append(f"Chunk {index} is invalid: {exc}")
             continue
-        if (chunk.kb, chunk.source_file) not in known_sources:
+        source = source_by_key.get((chunk.kb, chunk.source_file))
+        if source is None:
             errors.append(
                 f"Chunk {chunk.chunk_id} references unknown source "
                 f"{chunk.kb}:{chunk.source_file}"
             )
+            continue
+        if chunk.chunk_id in seen_chunk_ids:
+            errors.append(f"Duplicate chunk_id: {chunk.chunk_id}")
+            continue
+        seen_chunk_ids.add(chunk.chunk_id)
+        metadata_mismatch = False
+        for field_name in ("source_type", "document_type", "visibility"):
+            if getattr(chunk, field_name) != getattr(source, field_name):
+                errors.append(
+                    f"Chunk {chunk.chunk_id} metadata mismatch for {field_name}: "
+                    f"source={getattr(source, field_name)!r}, "
+                    f"chunk={getattr(chunk, field_name)!r}"
+                )
+                metadata_mismatch = True
+                break
+        if metadata_mismatch:
             continue
         valid_chunks.append(chunk)
 
@@ -106,6 +124,10 @@ def validate_knowledge_base(
     secondary_chunk_count = sum(chunk.kb == "secondary" for chunk in valid_chunks)
     if not valid_chunks:
         errors.append("No valid chunks are available for retrieval")
+    if not any(chunk.kb == "primary" for chunk in valid_chunks):
+        errors.append("No valid primary chunks are available for retrieval")
+    if not any(chunk.kb == "secondary" for chunk in valid_chunks):
+        errors.append("No valid secondary chunks are available for retrieval")
 
     return KnowledgeBaseValidationReport(
         primary_document_count=len(primary_documents),
@@ -142,6 +164,7 @@ def require_valid_knowledge_base(
 def load_cached_chunks(chunks_path: Path) -> list[SourceChunk]:
     """Load and validate a JSONL chunk cache for downstream retrieval."""
     chunks: list[SourceChunk] = []
+    seen_chunk_ids: set[str] = set()
     path = Path(chunks_path)
     if not path.exists():
         raise KnowledgeBaseValidationError(f"Chunk cache does not exist: {path}")
@@ -158,7 +181,11 @@ def load_cached_chunks(chunks_path: Path) -> list[SourceChunk]:
             )
         try:
             payload = json.loads(line)
-            chunks.append(chunk_from_dict(payload))
+            chunk = chunk_from_dict(payload)
+            if chunk.chunk_id in seen_chunk_ids:
+                raise SchemaValidationError(f"Duplicate chunk_id: {chunk.chunk_id}")
+            seen_chunk_ids.add(chunk.chunk_id)
+            chunks.append(chunk)
         except (json.JSONDecodeError, SchemaValidationError, TypeError) as exc:
             raise KnowledgeBaseValidationError(
                 f"Invalid chunk cache {path} at line {line_number}: {exc}"

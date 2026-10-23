@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,33 @@ def test_rejects_chunk_from_unknown_source():
 
     assert not report.is_valid
     assert any("unknown source" in error for error in report.errors)
+
+
+def test_rejects_chunk_metadata_drift_from_source():
+    documents = load_documents(PRIMARY, SECONDARY)
+    chunks = chunk_documents(documents)
+    drifted = replace(chunks[0], visibility="public")
+
+    report = validate_knowledge_base(PRIMARY, SECONDARY, chunks=[drifted, *chunks[1:]])
+
+    assert not report.is_valid
+    assert any("visibility" in error and "mismatch" in error for error in report.errors)
+
+
+def test_rejects_duplicate_chunk_ids():
+    chunks = load_cached_chunks(FIXTURES / "sample_chunks.jsonl")
+    duplicate = validate_knowledge_base(PRIMARY, SECONDARY, chunks=[chunks[0], chunks[0]])
+
+    assert not duplicate.is_valid
+    assert any("Duplicate chunk_id" in error for error in duplicate.errors)
+
+
+def test_requires_chunks_from_both_kbs():
+    chunks = load_cached_chunks(FIXTURES / "sample_primary_chunks.jsonl")
+    report = validate_knowledge_base(PRIMARY, SECONDARY, chunks=chunks)
+
+    assert not report.is_valid
+    assert any("secondary chunks" in error for error in report.errors)
 
 
 def test_cached_chunk_loader_rejects_invalid_json(tmp_path):

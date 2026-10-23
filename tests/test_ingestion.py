@@ -87,6 +87,24 @@ def test_normalizes_uploaded_text_and_preserves_article_identifier(tmp_path):
     assert "\n\n\n" not in text
 
 
+@pytest.mark.parametrize("visibility", ["internal", "mixed"])
+def test_bom_before_front_matter_preserves_visibility(tmp_path, visibility):
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary"
+    primary.mkdir(parents=True)
+    secondary.mkdir(parents=True)
+    (secondary / "restricted.md").write_text(
+        f"\ufeff---\nvisibility: {visibility}\ndocument_type: policy\n---\nEvidence.",
+        encoding="utf-8",
+    )
+
+    documents = load_documents(primary, secondary)
+
+    assert documents[0].visibility == visibility
+    assert documents[0].document_type == "policy"
+    assert "---" not in documents[0].text
+
+
 def test_prefers_article_markdown_over_official_pdf(tmp_path):
     primary = tmp_path / "primary"
     secondary = tmp_path / "secondary" / "eu_ai_act"
@@ -95,6 +113,7 @@ def test_prefers_article_markdown_over_official_pdf(tmp_path):
     (secondary / "article_14.md").write_text(
         "# Article 14 — Human oversight\nThe source text.", encoding="utf-8"
     )
+    (secondary / ".replace_official_pdf").touch()
     # If preference is not applied, this intentionally invalid PDF would fail.
     (secondary / "eu_ai_act_official.pdf").write_bytes(b"not a real PDF")
 
@@ -104,6 +123,44 @@ def test_prefers_article_markdown_over_official_pdf(tmp_path):
         "eu_ai_act/article_14.md"
     ]
     assert "[ARTICLE 14]" in documents[0].text
+
+
+def test_unmarked_article_markdown_does_not_replace_official_pdf(tmp_path):
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary" / "eu_ai_act"
+    primary.mkdir(parents=True)
+    secondary.mkdir(parents=True)
+    (secondary / "article_notes.md").write_text(
+        "# Article notes\nA partial upload.", encoding="utf-8"
+    )
+    (secondary / "eu_ai_act_official.pdf").write_bytes(b"not a real PDF")
+
+    with pytest.raises(IngestionError, match="Unable to extract PDF"):
+        load_documents(primary, tmp_path / "secondary")
+
+
+def test_pdf_with_no_extractable_text_is_an_ingestion_error(tmp_path, monkeypatch):
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary"
+    primary.mkdir(parents=True)
+    secondary.mkdir(parents=True)
+    (secondary / "scanned.pdf").write_bytes(b"placeholder")
+
+    class EmptyPage:
+        def extract_text(self):
+            return "   "
+
+    class EmptyReader:
+        metadata = {}
+        pages = [EmptyPage(), EmptyPage()]
+
+        def __init__(self, path):
+            pass
+
+    monkeypatch.setattr(ingestion, "PdfReader", EmptyReader)
+
+    with pytest.raises(IngestionError, match="no extractable text"):
+        load_documents(primary, secondary)
 
 
 def test_pdf_extraction_is_cached_for_unchanged_file(tmp_path, monkeypatch):

@@ -27,6 +27,26 @@ def test_chunks_both_kbs_and_preserves_shared_metadata():
     assert any(chunk.kb == "secondary" and chunk.page_start == 1 for chunk in chunks)
 
 
+def test_chunk_ids_are_distinct_for_slug_collisions():
+    documents = [
+        SourceDocument(
+            source_id="primary:a-b.md", kb="primary", source_file="a-b.md",
+            source_type="company_document", document_type="policy", visibility="internal",
+            title="A", text="Evidence A.",
+        ),
+        SourceDocument(
+            source_id="primary:a_b.md", kb="primary", source_file="a_b.md",
+            source_type="company_document", document_type="policy", visibility="internal",
+            title="B", text="Evidence B.",
+        ),
+    ]
+
+    chunks = chunk_documents(documents)
+
+    assert len({chunk.chunk_id for chunk in chunks}) == 2
+    assert chunks[0].chunk_id != chunks[1].chunk_id
+
+
 def test_chunks_headings_articles_and_pages():
     document = SourceDocument(
         source_id="secondary:eu_ai_act/article_14.md",

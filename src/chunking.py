@@ -6,6 +6,7 @@ boundaries; a character limit is only a fallback for unusually long sections.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -64,8 +65,10 @@ def chunk_documents(
             for text in _split_long_segment(segment, max_chunk_characters):
                 if not text.strip():
                     continue
+                source_key = f"{document.kb}:{document.source_file}"
+                source_hash = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:10]
                 chunk = SourceChunk(
-                    chunk_id=f"{_slug(document.kb + '_' + document.source_file)}"
+                    chunk_id=f"{_slug(document.kb + '_' + document.source_file)}_{source_hash}"
                     f"_{source_index:04d}",
                     kb=document.kb,
                     source_file=document.source_file,
@@ -98,10 +101,14 @@ def save_chunks(chunks: list[SourceChunk], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     validated_chunks = []
+    seen_chunk_ids: set[str] = set()
     for chunk in chunks:
         if not isinstance(chunk, SourceChunk):
             raise SchemaValidationError("save_chunks expects SourceChunk objects")
         validated_chunks.append(validate_source_chunk(chunk))
+        if chunk.chunk_id in seen_chunk_ids:
+            raise SchemaValidationError(f"Duplicate chunk_id: {chunk.chunk_id}")
+        seen_chunk_ids.add(chunk.chunk_id)
 
     jsonl = "".join(
         json.dumps(to_dict(chunk), ensure_ascii=False, sort_keys=True) + "\n"
