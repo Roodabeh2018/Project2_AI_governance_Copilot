@@ -128,4 +128,6 @@ with gr.Blocks(title="AI Governance Copilot") as demo:
         demo.load(register, reg_sys, reg_tbl)
 
 if __name__ == "__main__":
-    demo.launch()
+    # Host, port and optional login come from src.config (contract §8); see launch_settings().
+    from src.config import launch_settings
+    demo.launch(**launch_settings())
