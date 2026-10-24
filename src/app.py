@@ -128,11 +128,6 @@ with gr.Blocks(title="AI Governance Copilot") as demo:
         demo.load(register, reg_sys, reg_tbl)
 
 if __name__ == "__main__":
-    # Locally: http://127.0.0.1:7860. On Render: listen on 0.0.0.0 and the PORT Render assigns.
-    # Optional login (recommended when deployed): set APP_USERNAME and APP_PASSWORD.
-    import os
-    on_server = "PORT" in os.environ
-    user, password = os.environ.get("APP_USERNAME"), os.environ.get("APP_PASSWORD")
-    demo.launch(server_name="0.0.0.0" if on_server else "127.0.0.1",
-                server_port=int(os.environ.get("PORT", 7860)),
-                auth=(user, password) if user and password else None)
+    # Host, port and optional login come from src.config (contract §8); see launch_settings().
+    from src.config import launch_settings
+    demo.launch(**launch_settings())
