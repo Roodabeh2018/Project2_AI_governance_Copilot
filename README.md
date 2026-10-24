@@ -61,11 +61,11 @@ All company documents are synthetic. Do not add confidential real company data. 
 ## Suggested demo
 Ask what evidence exists for monitoring of a fictional AI system; show retrieved passages and a potential gap; generate an AI System Monitoring Plan with placeholders for unknowns; generate a short internal update. Explain that the result is a draft and not a compliance determination.
 
-## How to run (Windows PowerShell, tested 23 Oct 2026)
+## How to run (Windows PowerShell, tested 23–24 Oct 2026)
 
 Run every command from the project folder (the one that contains `src/`).
 
-> **Status of this guide:** all steps work on `main` after PRs #12 (Color B vector index) and #13 (Color C checks) were merged on 23 Oct 2026.
+> **Status of this guide:** all steps work on the current `main` (RAG pipeline with the vector index, Color C checks, Gradio UI and Render deployment are merged).
 
 ### 1. Environment
 ```
@@ -75,7 +75,7 @@ pip install -U pypdf            # pypdf 6.x is needed for clean EU AI Act text
 copy .env.example .env          # then add OPENAI_API_KEY in .env — never commit .env
 ```
 `LLM_PROVIDER=mock` gives free canned answers instead of calling the LLM (for tests and rehearsals); `LLM_PROVIDER=openai` (the default in `.env.example`) uses `MODEL_NAME` (default `gpt-4o-mini`).
-Note: `mock` only replaces **generation**. Retrieval with the vector index (after PR #12) still calls the **embedding API** for the query. A run is fully offline only with `--fixture` **and** `LLM_PROVIDER=mock`.
+Note: `mock` only replaces **generation**. Retrieval with the vector index still calls the **embedding API** for the query. A run is fully offline only with `--fixture` **and** `LLM_PROVIDER=mock`.
 
 ### 2. Check the knowledge base (Color A)
 ```
@@ -98,7 +98,7 @@ Writes `cache/chunks.jsonl`, `cache/vectors.npy` and `cache/metadata.json` (git-
 ```
 python -m pytest -q
 ```
-Expected on 23 Oct 2026: **56 passed** on `main` `5da8697`; 91 with PR #13 (`2424c7d`); PR #12 adds its own retrieval/indexing tests.
+Expected on `main` `913961c` (24 Oct 2026): **143 passed** with pypdf 6.21. Known issue: with pypdf 6.10 one ingestion test fails (`test_loads_current_primary_and_official_secondary_baseline`, exact phrase “Artificial Intelligence Act” in the extracted PDF text); owned by Color A, see `docs/test_plan.md`.
 
 ### 5. Generate drafts from the command line (Color C)
 ```
@@ -128,13 +128,17 @@ python -m src.app
 Open http://127.0.0.1:7860. Tabs:
 1. **Generate & review**: generate a draft, inspect the retrieved sources, approve / reject / save as draft.
 2. **Upload documents**: internal documents → Primary, public regulations → Secondary; the index is rebuilt, and complete gap-register items are set to `re_check` after a new regulation.
-3. **Gap register**: status per requirement (open / complete / re_check), with approver, date and source references. It only changes after a human approves an internal update; with PR #13 every finding is validated first (known requirement ID, valid status, supplied sources).
+3. **Gap register**: status per requirement (open / complete / re_check), with approver, date and source references. It only changes after a human approves an internal update, and every finding is validated first (known requirement ID, valid status, supplied sources).
 
 ### Evidence for the course requirements
 - `docs/uniqueness_comparison.md`: Copilot vs. generic ChatGPT (M7)
 - `docs/public_leakage_test.md`: public output never uses internal sources
 - `docs/test_plan.md`: test plan with automated test mapping
-- `docs/demo_script.md`: 5-minute demo
+- `docs/demo_script.md`: presentation and demo script
+- `docs/prompt_iteration_log.md`: prompt iterations and prompting strategies
+- `docs/agent_usage.md`: how `AGENTS.md` guided the work (card, Must ID, rule, change, test, commit)
+- `docs/evidence/`: saved real-LLM outputs used as evidence
+- `project_structure.md` §7–7a: team split along the RAG pipeline and WBS → Trello card → Must ID
 
 ## Deploy on Render (free web service)
 

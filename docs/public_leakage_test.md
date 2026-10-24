@@ -3,7 +3,7 @@
 Risk from `project_structure.md` §5: *Internal or confidential facts leak into a public post.*
 Safety tests **S05 / S06** in `docs/test_plan.md`: internal and mixed chunks must be excluded **before prompt construction** when the output is public.
 
-Runs A and B were performed on 23 Oct 2026 with a real LLM (`gpt-4o-mini`, `LLM_PROVIDER=openai`), Windows, conda env `bootcamp-env`, and the PR #13 branch before PR #12. Run C is the separate local-index retrieval/prompt check described below.
+Runs A and B were performed on 23 Oct 2026 with a real LLM (`gpt-4o-mini`, `LLM_PROVIDER=openai`), Windows, conda env `bootcamp-env`, and the PR #13 branch before PR #12. Run C is the separate local-index retrieval/prompt check described below. **Run D** is the final end-to-end public run on `main` `913961c` (24 Oct 2026) with the vector index and a real LLM.
 
 **Scope of this test:** it checks **chunk filtering before prompt construction**, i.e. which source chunks the LLM receives. It does **not** prove that the whole generated text is safe to publish. Request fields such as the AI system name and document title are also placed in the prompt, and the model can write any text. Every public output still needs human review before use.
 
@@ -77,9 +77,33 @@ without including non-public chunks in the generated prompt. This checks retriev
 construction and citation locators; it does not validate arbitrary text a language model might
 generate. Human review remains required for any public communication.
 
+## Run D: final public run, integrated RAG pipeline (24 Oct 2026)
+
+- Code: `main` `913961c`; `gpt-4o-mini`, temperature 0.2; embeddings `text-embedding-3-small`; top-k 3 + 3; index rebuilt with `python -m src.build_index`.
+- Command:
+
+```
+python -m src.pipeline --type governance_document --visibility public --no-review
+```
+
+- Full output: `docs/evidence/2026-10-24/public_monitoring_plan.md`.
+
+**Result:**
+
+| Check | Result |
+|---|---|
+| Primary sources given to the model | P1 `comms_guidelines.md`, P2 `company_profile.md`, both `visibility: public` |
+| Secondary sources | EU AI Act official PDF: Article 14 (page 60), page 21, Article 72 (page 101) |
+| Internal documents (inventory, risk assessment, monitoring notes, technical documentation, …) in the Source Register | **0** |
+| Internal facts in the text (owners, model version, risk findings, control weaknesses) | none found by manual reading |
+| `[P#]` / `[S#]` template residue (Run B finding) | none |
+| Automatic checks | all passed |
+
+**Interpretation: PASS for chunk filtering in the final pipeline.** The same request-field limitation as in Run A remains: the title contains “Credit Decision Support AI”, because the system name comes from the request field. Human review is still required before anything is published.
+
 ## Automated regression tests (offline, `LLM_PROVIDER=mock`)
 
-The two tests marked *(PR #13)* were added by that follow-up and are present in the integrated branch.
+The two tests marked *(PR #13)* were added by that follow-up and are on `main`.
 
 | Test | What it proves |
 |---|---|
@@ -103,5 +127,4 @@ python -m pytest -q
 4. **Output validator** warns if a public output cites an internal label.
 5. **Human review**: nothing is published automatically. This is also the safeguard for text that does not come from chunks (request fields, model wording).
 
-Run A records the earlier legacy retrieval behavior before PR #12. Run C records the subsequent
-local-index behavior; it does not replace the still-useful fixture-based Run B.
+Runs A and B record the earlier behaviour before PR #12 and are kept as history. Run C checks the local index without generation; Run D is the final end-to-end check.

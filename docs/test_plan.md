@@ -29,41 +29,41 @@
 ## Shared fixtures
 Use the fixtures defined in `docs/shared_engineering_contract.md`: at least two primary chunks, two secondary chunks, internal and public visibility, one supported query and one unsupported query.
 
-## Results — 23 Oct 2026
+## Results — final, 24 Oct 2026
 
-Automated suite, `python -m pytest -q` (`LLM_PROVIDER=mock`, pypdf 6.x), by tested combination:
+Automated suite, `python -m pytest -q` (`LLM_PROVIDER=mock`, no API cost):
 
-| Code | Result |
-|---|---|
-| `main` `5da8697` (this branch's base) | 56 passed |
-| PR #13 `e2acabe` (main + Color C follow-up) | 74 passed |
-| PR #13 `2424c7d` (after two re-reviews) | 91 passed |
-| main + PR #13 + PR #12 `b8e88b5` (temporary local merge) | 97 passed |
+| Code | pypdf | Result |
+|---|---|---|
+| `main` `913961c` (all PRs merged, incl. #12 vector index, #13, #15 deploy, #16 UI) | 6.21.2 | **143 passed** |
+| same | 6.10.0 | 142 passed, **1 failed**: `tests/test_ingestion.py::test_loads_current_primary_and_official_secondary_baseline` expects the exact phrase “Artificial Intelligence Act” in the extracted PDF text. **Flagged for Color A (Armin), not weakened.** `requirements.txt` asks for `pypdf>=6`; pinning a minimum that works is Color A's decision |
 
-Real-LLM runs used `gpt-4o-mini` on PR #13 `e2acabe` with the legacy Color B retrieval (before PR #12); their outputs are under `outputs/`. Rows citing `tests/test_review_followup.py` require PR #13.
+Real-LLM runs on `913961c` (`gpt-4o-mini`, temperature 0.2, `text-embedding-3-small`, top-k 3 + 3, minimum score 0.35) are saved in `docs/evidence/2026-10-24/`. The earlier 23 Oct runs (PR #13 `e2acabe`, legacy retrieval) are kept as history in `docs/uniqueness_comparison.md` Part 2 and `docs/public_leakage_test.md` Runs A–B.
 
 | ID | Status | Evidence |
 |---|---|---|
 | T01 | ✅ | `tests/test_ingestion.py::test_loads_current_primary_and_official_secondary_baseline`, `test_bom_before_front_matter_preserves_visibility` |
 | T02 | ✅ | `test_ingestion.py` baseline test checks `[PAGE 1]` … `[PAGE 144]` and `kb=secondary` |
 | T03 | ✅ | `tests/test_chunking.py::test_chunks_headings_articles_and_pages` |
-| T04 | ⚠️ partial | Separate primary/secondary fields: `tests/test_pipeline_adapter.py` (top-k per KB). Live retrieval does not yet search the EU AI Act PDF; it depends on PR #12 (Color B) |
-| T05 | ✅ | `test_pipeline.py::test_governance_document_draft`; real run `outputs/governance_documents/governance_document_20261023_1432.md` |
-| T06 | ✅ | Real run: "Business owner: [OWNER TO CONFIRM] [P3]", "Monitoring owner: [OWNER TO CONFIRM] [P3]" |
-| T07 | ✅ | Real run: "Acceptance thresholds: [THRESHOLD TO CONFIRM] [P2]"; no numeric threshold invented |
+| T04 | ✅ | Separate primary/secondary fields and top-k per KB: `tests/test_pipeline_adapter.py`; live run 24 Oct returns 3 company chunks and 3 EU AI Act chunks (`docs/evidence/2026-10-24/internal_monitoring_plan.md`, Source Register) |
+| T05 | ✅ | `test_pipeline.py::test_governance_document_draft`; real run `docs/evidence/2026-10-24/internal_monitoring_plan.md` |
+| T06 | ✅ | Real run 24 Oct: business owner, technical owner and monitoring owner are `[OWNER TO CONFIRM]` with `[P1]` (`internal_monitoring_plan.md`) |
+| T07 | ✅ | Real run 24 Oct: "Escalation thresholds: [THRESHOLD TO CONFIRM] [P2] [S1]"; no numeric threshold invented |
 | T08 | ✅ | Every run saved with `Status: Draft — human review required`; `test_review_followup.py::test_saved_markdown_contains_full_locators` |
-| T09 | ✅ | `test_pipeline.py::test_internal_update_has_findings_json`; real run `outputs/internal_updates/internal_update_20261023_1438.md` (all automatic checks passed) |
+| T09 | ✅ | `test_pipeline.py::test_internal_update_has_findings_json`; real run `docs/evidence/2026-10-24/internal_update.md` (findings JSON parsed) |
 | T10 | ✅ manual | Gradio app run locally (3 tabs: generate & review, upload, gap register) |
 | S01 | ✅ | `test_pipeline.py::test_negative_query_returns_insufficient_source`; `--system AI-99` returns "AI system not found in the company documents: AI-99" |
-| S02 | ⚠️ partial | Run 1432 had no regulatory context; the validator flagged "Cites sources that were not supplied: S1". It is not yet a hard stop |
+| S02 | ⚠️ partial | The validator warns when an output cites a label that was not supplied (seen on 23 Oct, run 1432). The 24 Oct runs cite only supplied labels. It is a warning, not a hard stop |
 | S03 | ❌ not tested | Conflicting sources: rule in the prompt (AGENTS.md rule 11), no automated test |
 | S04 | ✅ | Drafts are never approved automatically; `test_review_followup.py` shows an invalid approval changes nothing in the gap register |
-| S05 | ✅ | `docs/public_leakage_test.md` (Runs A and B); `test_pipeline.py::test_public_output_never_receives_internal_chunks`; `test_review_followup.py::test_prepopulated_public_request_never_sends_internal_text_to_the_prompt` |
+| S05 | ✅ | `docs/public_leakage_test.md` (Runs A–D); `test_pipeline.py::test_public_output_never_receives_internal_chunks`; `test_review_followup.py::test_prepopulated_public_request_never_sends_internal_text_to_the_prompt` |
 | S06 | ✅ by design | Public output keeps only `visibility == "public"`, so `mixed` is excluded (`pipeline.visible()`). No dedicated `mixed` fixture yet |
 | S07 | ❌ not tested | Prompt forbids describing drafts as approved; no automated check |
 | S08 | n/a | Reference notes are excluded from the baseline KB by Color A; the official PDF is the regulatory source |
 
 ### Known gaps / next steps
-- Merge PR #12 (Color B vector index), then repeat T04 and leakage Run A with real EU AI Act retrieval.
+- pypdf 6.10 ingestion failure (above): Color A to decide on a minimum version or a more robust check.
+- Validator: also check the placeholder type for model/version and classification bullets (see `docs/prompt_iteration_log.md`, iteration 4).
+- Retrieval with top-3 can miss a relevant document (24 Oct internal update: `human_oversight_procedure.md` not retrieved, HUM-01 over-stated); the human review step catches this.
 - Add a validator warning for template residue such as a literal `[P#]` (seen in leakage Run B).
 - Add tests for S03 (conflicting sources) and S07 (draft described as approved).
