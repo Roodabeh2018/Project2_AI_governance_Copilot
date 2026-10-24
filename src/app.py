@@ -18,7 +18,7 @@ from pathlib import Path
 import gradio as gr
 
 from src import gap_register
-from src.config import FIXTURES_DIR, PRIMARY_DIR, SECONDARY_DIR, ROOT
+from src.config import FIXTURES_DIR, PRIMARY_DIR, SECONDARY_DIR, ROOT, llm_provider
 from src.contracts import (ConfigurationError, GenerationError, GenerationRequest, IngestionError,
                            RetrievalError, retrieval_context_from_dict)
 from src.pipeline import DEFAULT_SYSTEM, approve, run_pipeline
@@ -34,6 +34,18 @@ KNOWLEDGE_BASES = [("Primary: internal company documents", "primary"),
 DOCUMENT_TYPES = ["AI System Monitoring Plan", "Human Oversight Procedure", "AI Risk Assessment",
                   "Technical Documentation", "Testing and Validation Plan", "AI Incident Response Procedure"]
 TOPICS = ["monitoring and human oversight", "risk classification", "technical documentation", "incident response"]
+
+SAMPLE_CONTEXT_LABEL = "Use sample source context"
+
+
+def sample_context_info() -> str:
+    """Honest helper text: the sample replaces retrieval only, never generation."""
+    if llm_provider() == "mock":
+        return ("Skips the knowledge-base search and uses a saved example. Generation is in mock mode "
+                "(LLM_PROVIDER=mock): no API calls, no cost.")
+    return ("Skips the knowledge-base search and uses a saved example. Generation still uses the configured "
+            "model and may incur API charges. For a fully offline test, set LLM_PROVIDER=mock.")
+
 
 STATUS_ICON = {"open": "🔴 Open", "complete": "🟢 Complete", "re_check": "🟡 Re-check"}
 DECISION_BADGE = {"draft": ("Draft — human review required", "badge-draft"),
@@ -227,8 +239,7 @@ with gr.Blocks(title="AI Governance Copilot") as demo:
             with gr.Row():
                 visibility = gr.Radio(VISIBILITIES, value="internal", label="Who may read the output?",
                                       info="Public outputs only use sources tagged public.")
-                use_fixture = gr.Checkbox(label="Use sample context (offline test)",
-                                          info="Uses a saved example instead of searching the knowledge bases.")
+                use_fixture = gr.Checkbox(label=SAMPLE_CONTEXT_LABEL, info=sample_context_info())
         with gr.Group(elem_classes="panel"):
             gr.Markdown("### 3. Draft details")
             with gr.Row():

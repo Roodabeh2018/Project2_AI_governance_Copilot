@@ -122,3 +122,24 @@ def test_register_summary_counts_and_legend():
     assert "Open: <b>8</b>" in summary and "Complete: <b>0</b>" in summary and "Last refreshed" in summary
     rows = app.register("Credit Decision Support AI")
     assert len(rows) == 8 and rows[0][1] == "🔴 Open" and len(rows[0]) == len(app.REGISTER_HEADERS)
+
+
+def test_sample_context_option_is_honest_about_generation_cost(monkeypatch):
+    assert app.SAMPLE_CONTEXT_LABEL == "Use sample source context" and "offline" not in app.SAMPLE_CONTEXT_LABEL
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    assert "may incur API charges" in app.sample_context_info() and "LLM_PROVIDER=mock" in app.sample_context_info()
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    assert "no API calls" in app.sample_context_info()
+
+
+def test_sample_context_replaces_retrieval_but_not_generation(monkeypatch):
+    """With the sample, generation still goes through the configured generator (real API when openai)."""
+    from src import llm_generator
+    calls = []
+    monkeypatch.setattr(llm_generator, "generate_text",
+                        lambda prompt: calls.append(prompt) or llm_generator._mock_answer(prompt))
+    monkeypatch.setattr(pipeline, "retrieve_context",
+                        lambda request: pytest.fail("sample context must skip retrieval"))
+    app.generate("governance_document", "Credit Decision Support AI", "AI System Monitoring Plan",
+                 "monitoring and human oversight", "internal", "", True)
+    assert len(calls) == 1
