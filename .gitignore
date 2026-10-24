@@ -6,3 +6,11 @@ __pycache__/
 venv/
 cache/
 knowledge_base/secondary/uploads/
+# Local/private company documents — never commit
+knowledge_base/primary/uploads/
+knowledge_base/primary/private/
+
+# Local runtime data
+data/gap_register.json
+outputs/
+cache/
