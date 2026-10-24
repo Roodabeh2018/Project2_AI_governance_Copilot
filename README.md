@@ -2,6 +2,30 @@
 
 A short-course Python RAG prototype that helps an AI Governance / Risk analyst identify potential documentation gaps in a fictional organisation's supplied AI governance knowledge base and generate source-grounded draft documents and communications for human review.
 
+## Links
+
+- [Live Demo](https://project2-ai-governance-copilot.onrender.com/)
+- [GitHub Repository](https://github.com/Roodabeh2018/Project2_AI_governance_Copilot)
+- Project Board: Trello workflow evidence is included below in [`docs/screenshots/`](docs/screenshots/).
+
+The live demo is deployed from the reviewed and merged `main` branch. Runtime uploads and generated outputs are local to the running service and are not committed to the repository.
+
+## Project board evidence
+
+### Trello board overview
+
+![Trello board overview](docs/screenshots/trello-board-overview.png)
+
+### Workflow and task ownership
+
+![Trello workflow](docs/screenshots/trello-workflow-final.png)
+
+![Color A task](docs/screenshots/trello-color-a-card-02.png)
+
+![Color B task](docs/screenshots/trello-color-b-card-08.png)
+
+![Color C task](docs/screenshots/trello-color-c-card-13.png)
+
 ## MVP
 - Load the synthetic primary company documents and the official 144-page EU AI Act PDF.
 - Accept optional user-uploaded internal documents into `primary` and public/reference documents into `secondary`.
