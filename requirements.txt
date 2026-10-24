@@ -1,6 +1,6 @@
 gradio
 numpy
 openai
-pypdf
+pypdf>=6
 python-dotenv
 pytest

@@ -41,7 +41,7 @@ Ask what evidence exists for monitoring of a fictional AI system; show retrieved
 
 Run every command from the project folder (the one that contains `src/`).
 
-> **Status of this guide:** steps 1, 2, 4, 5 and 6 work on `main` as of `5da8697`. Step 3 (vector index) needs **PR #12** (Color B). Until PR #12 is merged, the CLI and app use the legacy keyword retrieval, which does not search the EU AI Act PDF. The stricter approval and output checks described in step 6 (validated gap-register updates, status-line and verdict checks) come with **PR #13** (Color C).
+> **Status of this guide:** all steps work on `main` after PRs #12 (Color B vector index) and #13 (Color C checks) were merged on 23 Oct 2026.
 
 ### 1. Environment
 ```
@@ -59,8 +59,12 @@ python -m src.kb_validation
 ```
 Prints the number of Primary/Secondary documents and chunks, or a clear error.
 
-### 3. Build the chunk cache and vector index (Color A + B) — requires PR #12
-On `main` before PR #12 this command fails with `ImportError: cannot import name 'build_index'`. After PR #12: needs `OPENAI_API_KEY` (embeddings, paid). Run once, and again after adding documents:
+### 3. Build the chunk cache and vector index (Color A + B)
+Needs `OPENAI_API_KEY` (embeddings, paid; a few cents). Run once, and again after adding documents:
+```
+python -m src.build_index
+```
+The same as the longer one-liner:
 ```
 python -c "from src.config import PRIMARY_DIR, SECONDARY_DIR, CACHE_DIR; from src.chunking import rebuild_cache; from src.indexing import build_index; build_index(rebuild_cache(PRIMARY_DIR, SECONDARY_DIR, CACHE_DIR), CACHE_DIR)"
 ```
@@ -107,3 +111,28 @@ Open http://127.0.0.1:7860. Tabs:
 - `docs/public_leakage_test.md`: public output never uses internal sources
 - `docs/test_plan.md`: test plan with automated test mapping
 - `docs/demo_script.md`: 5-minute demo
+
+## Deploy on Render (free web service)
+
+The app runs as one Render **Web Service** built from `main`. Every push to `main` redeploys it, so only reviewed and merged code goes live.
+
+| Setting | Value |
+|---|---|
+| Runtime | Python 3 |
+| Build command | `pip install -r requirements.txt && python -m src.build_index` |
+| Start command | `python -m src.app` |
+| Instance type | Free |
+
+**Environment variables** (Render → Environment; never in the repo):
+
+| Key | Value |
+|---|---|
+| `OPENAI_API_KEY` | your key |
+| `MODEL_NAME` | `gpt-4o-mini` |
+| `LLM_PROVIDER` | `openai` |
+| `PYTHON_VERSION` | `3.12.7` |
+| `APP_USERNAME`, `APP_PASSWORD` | a login for the public link, so strangers cannot spend the API budget |
+
+`src/app.py` listens on `0.0.0.0` and Render's `PORT` when `PORT` is set, and on `127.0.0.1:7860` locally. The index is built during the build step, because `cache/` is git-ignored.
+
+**Free-plan limits:** the service sleeps after 15 minutes without visitors (open the link a few minutes before the demo). Files written at runtime (`outputs/`, `data/gap_register.json`, uploads, the rebuilt index) are lost on every restart or redeploy. **Plan B:** run locally with `python -m src.app`.
