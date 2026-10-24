@@ -62,11 +62,41 @@
 4. **Generation:** LLM client, prompt templates, document draft, internal update, pipeline command.
 5. **Close:** tests, uniqueness comparison, README, demo and Day 1/Day 2 board screenshots.
 
-## 7. Proposed team split (confirm together)
-- **Color A — Armin:** ingestion, PDF/Markdown parsing, chunking and KB manifests.
-- **Color B — Murat:** local index, retrieval, visibility filtering and retrieval tests.
-- **Color C — Roodi:** prompts, LLM generation, CLI pipeline and Gradio integration.
-Everyone works in parallel on a branch and integrates through the shared contract and fixtures.
+## 7. Team split along the RAG pipeline (as built)
+The split follows the pipeline in `rag_decision.md`. Each color owns consecutive steps and hands over through the shared contract (`docs/shared_engineering_contract.md`) and shared fixtures.
+
+| RAG step (`rag_decision.md`) | Owner | Implemented in |
+|---|---|---|
+| 1–2. Load Markdown/PDF files, parse text and metadata (incl. `visibility` from front matter) | **Color A — Armin** | `src/ingestion.py`, `src/kb_validation.py` |
+| 3. Split into chunks keeping source file, section/page/article and visibility | **Color A — Armin** | `src/chunking.py` → `cache/chunks.jsonl` |
+| 4. Embed chunks and store them in a local vector index | **Color B — Murat** | `src/indexing.py` (OpenAI `text-embedding-3-small`, `cache/vectors.npy` + `metadata.json`) |
+| 5. Retrieve top-k per knowledge base (Primary and Secondary separately), filtered by visibility, with a minimum score and a named-system check | **Color B — Murat** | `src/retrieval.py` |
+| 6. Pass retrieved context and a reusable prompt template to the LLM | **Color C — Roodi** | `src/prompts.py`, `src/llm_generator.py` |
+| 7. Require source references, cautious wording and placeholders; check the output | **Color C — Roodi** | `src/llm_generator.py` (validator, verdict check, status line) |
+| 8. Save the Markdown draft; human review and approval; gap register | **Color C — Roodi** | `src/pipeline.py` (CLI), `src/app.py` (Gradio), `src/gap_register.py` |
+
+Everyone worked in parallel on a branch and integrated through pull requests reviewed by a teammate.
+
+## 7a. WBS → Trello card → Must ID
+Trello cards as they appear on the board (`docs/screenshots/`). Color A cards are blue, Color B green, Color C orange.
+
+| WBS (§6) | Trello card | Owner | Must ID (§3) |
+|---|---|---|---|
+| 1. Structure and board | Board, lists and the shared contract were set up before the cards (`project_structure.md`, `AGENTS.md`, `rag_decision.md`, `docs/shared_engineering_contract.md`); no separate card | Team | M8 |
+| 2. Knowledge bases | 01 Ingest Primary and Secondary Knowledge Bases | Armin | M1, M2 |
+| 2. Knowledge bases | 02 Normalize EU AI Act and Uploaded Documents | Armin | M2 |
+| 3. Ingestion and retrieval | 03 Define and Validate the Unified Source/Chunk Schema | Armin | M1–M3 |
+| 3. Ingestion and retrieval | 04 Implement Ingestion, Chunking and Local Cache | Armin | M3 |
+| 3. Ingestion and retrieval | 05 Validate the Integrated Knowledge Base | Armin | M1–M3 |
+| 3. Ingestion and retrieval | 06 Build the Local Vector Index | Murat | M3 |
+| 3. Ingestion and retrieval | 07 Implement Separate Primary and Secondary Retrieval | Murat | M3 |
+| 3. Ingestion and retrieval | 08 Implement Output-Visibility Filtering | Murat | M3, M5 |
+| 3. Ingestion and retrieval | 09 Implement Source Sufficiency and Safety Handling | Murat | M4 |
+| 3. Ingestion and retrieval | 10 Run Retrieval Evaluation and Grounding Tests | Murat | M3, M4 (`docs/answer_key_results.md`) |
+| 4. Generation | 11 Define Prompt Contracts and Reusable Templates | Roodi | M5, M8 |
+| 4. Generation | 12 Implement the LLM Generator and CLI Pipeline | Roodi | M4, M6 |
+| 4. Generation | 13 Build the Local Gradio Interface | Roodi | M6 |
+| 5. Close | 14 Integrate, Compare and Prepare the Final Demo | Roodi | M7 (+ README, demo, board evidence) |
 
 ## 8. Definition of done
 - [ ] Both knowledge bases load with source metadata.
